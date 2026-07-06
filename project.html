@@ -672,16 +672,25 @@ p{font-size:16px;}
   var wantSlug=(params.get('slug')||'').toLowerCase();
   var wantId=params.get('id')||'';
 
-  fetch('/.netlify/functions/projects?public=1')
-    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-    .then(function(list){
-      list=Array.isArray(list)?list:[];
-      var match=list.find(function(p){ return (wantId && p.id===wantId) || (wantSlug && slugify(p.name)===wantSlug); });
-      if(!match){ showNotFound(); return; }
-      document.getElementById('state-loading').style.display='none';
-      render(match);
-    })
-    .catch(function(e){ console.warn('Could not load project', e); showNotFound(); });
+  // A single project.html serves both public listings (Selection and
+  // Below-Threshold): this one lookup call returns the project if — and
+  // only if — it's published to at least one of them, in the same
+  // public-safe shape either page's cards already use. No need to fetch
+  // both full lists and search client-side.
+  var qs=[];
+  if(wantSlug) qs.push('slug='+encodeURIComponent(wantSlug));
+  if(wantId) qs.push('id='+encodeURIComponent(wantId));
+  if(!qs.length){ showNotFound(); }
+  else {
+    fetch('/.netlify/functions/projects?'+qs.join('&'))
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(project){
+        if(!project || !project.name){ showNotFound(); return; }
+        document.getElementById('state-loading').style.display='none';
+        render(project);
+      })
+      .catch(function(e){ console.warn('Could not load project', e); showNotFound(); });
+  }
 })();
 </script>
 <footer class="footer">
