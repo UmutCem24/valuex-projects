@@ -248,17 +248,6 @@ p{font-size:16px;}
   var dir='desc';
   var allProjects=[];
 
-  // The 5 pages we hand-built before this page went dynamic. Any future
-  // project published from the workstation that isn't one of these links to
-  // project.html?slug=... instead — see the note further down about that.
-  var LEGACY_SLUGS={
-    'actio':'project-actio.html',
-    'veintree':'project-veintree.html',
-    'where2':'project-where2.html',
-    'cygnus-a2':'project-cygnus-a2.html',
-    'mirex-network':'project-mirex-network.html'
-  };
-
   function escapeHTML(s){
     return String(s==null?'':s).replace(/[&<>"']/g,function(c){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -276,9 +265,13 @@ p{font-size:16px;}
     var n=+score||0;
     return (Math.abs(n-Math.round(n))<0.05) ? String(Math.round(n)) : n.toFixed(1);
   }
+  // Every project — including the first 5 — now uses the single dynamic
+  // detail page. No more project-actio.html / project-veintree.html etc.:
+  // those static files are not part of the deployed repo, so linking to
+  // them 404s. project.html reads the same ?public=1 feed and renders
+  // whichever project matches the slug (or id, as a fallback).
   function linkFor(p){
-    var slug=slugify(p.name);
-    return LEGACY_SLUGS[slug] || ('project.html?slug='+encodeURIComponent(slug)+'&id='+encodeURIComponent(p.id||''));
+    return 'project.html?slug='+encodeURIComponent(slugify(p.name))+'&id='+encodeURIComponent(p.id||'');
   }
   function cardHTML(p){
     var total=p.total||0;
