@@ -4327,17 +4327,10 @@ function toggleSelectionVisibility(id) {
   if (typeof renderLibrary === 'function') renderLibrary();
 }
 
-// Mirrors selection.html's own slugify() + legacy-page map, so the "Live on
-// Selection" link in the library always points at the exact URL the public
-// site will actually use for this project (the 5 hand-built pages, or the
-// generic project.html?slug=... renderer for anything published since).
-var SELECTION_LEGACY_SLUGS = {
-  'actio': 'project-actio.html',
-  'veintree': 'project-veintree.html',
-  'where2': 'project-where2.html',
-  'cygnus-a2': 'project-cygnus-a2.html',
-  'mirex-network': 'project-mirex-network.html'
-};
+// Mirrors selection.html's own slugify(), so the "Live on Selection" link
+// in the library always points at the exact URL the public site uses for
+// this project. Every project uses the single dynamic project.html page —
+// there are no more hand-built project-<name>.html files in the repo.
 function selectionSlugify(name) {
   return String(name || '').toLowerCase()
     .replace(/²/g, '2').replace(/³/g, '3')
@@ -4345,8 +4338,7 @@ function selectionSlugify(name) {
     .replace(/^-+|-+$/g, '');
 }
 function selectionLiveUrl(p) {
-  var slug = selectionSlugify(p.name);
-  return SELECTION_LEGACY_SLUGS[slug] || ('project.html?slug=' + encodeURIComponent(slug) + '&id=' + encodeURIComponent(p.id || ''));
+  return 'project.html?slug=' + encodeURIComponent(selectionSlugify(p.name)) + '&id=' + encodeURIComponent(p.id || '');
 }
 
 // ---- Re-open a saved project's FULL evaluation back into the Evaluation tab ----
