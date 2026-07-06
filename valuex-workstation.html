@@ -590,6 +590,7 @@ input, textarea, select { font-family: inherit; }
 .lib-card-tag.status-revisit { color: var(--blue); border-color: rgba(111,159,216,0.4); background: rgba(111,159,216,0.06); }
 .lib-card-tag.status-declined { color: var(--red); border-color: rgba(217,104,95,0.4); background: rgba(217,104,95,0.06); }
 .lib-card-tag.published { color: var(--green); border-color: rgba(108,194,138,0.4); background: rgba(108,194,138,0.08); font-weight: 700; }
+.lib-card-tag.published-below { color: var(--amber); border-color: rgba(192,135,21,0.4); background: rgba(192,135,21,0.08); font-weight: 700; }
 .lib-card-actions { display: flex; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .lib-card-actions button { flex: 1; font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 7px 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; color: var(--text-2); }
 .lib-card-actions button:hover { background: var(--purple-soft); color: var(--purple); border-color: var(--purple-d); }
@@ -597,6 +598,9 @@ input, textarea, select { font-family: inherit; }
 .lib-card-actions button.primary:hover { background: var(--purple-2); border-color: var(--purple-2); }
 .lib-card-actions button.is-published { background: rgba(108,194,138,0.12); color: var(--green); border-color: rgba(108,194,138,0.4); }
 .lib-card-actions button.is-published:hover { background: rgba(108,194,138,0.2); color: var(--green); border-color: var(--green); }
+.lib-card-actions button.is-published-below { background: rgba(192,135,21,0.12); color: var(--amber); border-color: rgba(192,135,21,0.4); }
+.lib-card-actions button.is-published-below:hover { background: rgba(192,135,21,0.2); color: var(--amber); border-color: var(--amber); }
+.lib-card-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
 .lib-card-delta { font-family: var(--mono); font-size: 10px; color: var(--green); margin-top: 4px; }
 .lib-card-delta.down { color: var(--red); }
 
@@ -4294,7 +4298,8 @@ function saveProjectToLibrary(evalData) {
       lastRunAt: nowIso,
       status: list[existingIdx].status || 'pending',
       ratingHistory: ratingHistory,
-      publishedToSelection: !!list[existingIdx].publishedToSelection
+      publishedToSelection: !!list[existingIdx].publishedToSelection,
+      publishedToBelowThreshold: !!list[existingIdx].publishedToBelowThreshold
     });
   } else {
     currentProjectId = makeProjectId();
@@ -4305,7 +4310,8 @@ function saveProjectToLibrary(evalData) {
       lastRunAt: nowIso,
       status: 'pending',
       ratingHistory: ratingHistory,
-      publishedToSelection: false
+      publishedToSelection: false,
+      publishedToBelowThreshold: false
     }));
   }
   setProjects(list);
@@ -4324,6 +4330,25 @@ function toggleSelectionVisibility(id) {
   p.publishedToSelection = !p.publishedToSelection;
   setProjects(list);
   toast(p.publishedToSelection ? 'Now visible on the public Selection page' : 'Hidden from the public Selection page', '✓');
+  if (typeof renderLibrary === 'function') renderLibrary();
+}
+
+// ---- Show / hide a project on the public Below-Threshold page ----
+// Same mechanism as toggleSelectionVisibility, gated to projects scoring
+// below the 200 listing line (checked here AND re-checked server-side by
+// the Netlify Function, so a stale client can't publish an ineligible
+// project just by racing the UI).
+function toggleBelowThresholdVisibility(id) {
+  var list = getProjects();
+  var p = list.find(function(x){ return x.id === id; });
+  if (!p) return;
+  if (!(typeof p.total === 'number' && p.total < 200)) {
+    toast('Only projects below 200 can be published here.', '!');
+    return;
+  }
+  p.publishedToBelowThreshold = !p.publishedToBelowThreshold;
+  setProjects(list);
+  toast(p.publishedToBelowThreshold ? 'Now visible on the Below-Threshold page' : 'Hidden from the Below-Threshold page', '✓');
   if (typeof renderLibrary === 'function') renderLibrary();
 }
 
@@ -4501,6 +4526,7 @@ function renderLibrary() {
       deltaHTML = '<div class="lib-card-delta'+(delta<0?' down':'')+'">'+(delta>=0?'▲':'▼')+' '+Math.abs(Math.round(delta))+' over '+hist.length+' runs</div>';
     }
     var status = p.status || 'pending';
+    var belowOk = (typeof p.total === 'number' && p.total < 200);
     var card = document.createElement('div');
     card.className = 'lib-card';
     card.innerHTML = ''
@@ -4520,11 +4546,15 @@ function renderLibrary() {
       +   '<span class="lib-card-tag">'+escapeHTML(p.profile||'TECHX')+'</span>'
       +   '<span class="lib-card-tag status-'+status+'">'+statusLabel(status)+'</span>'
       +   (p.publishedToSelection ? '<a class="lib-card-tag published" href="'+escapeHTML(selectionLiveUrl(p))+'" target="_blank" rel="noopener" title="Open the public page in a new tab" onclick="event.stopPropagation();">● Live on Selection ↗</a>' : '')
+      +   (p.publishedToBelowThreshold ? '<a class="lib-card-tag published-below" href="'+escapeHTML(selectionLiveUrl(p))+'" target="_blank" rel="noopener" title="Open the public page in a new tab" onclick="event.stopPropagation();">● Live on Below-Threshold page ↗</a>' : '')
       + '</div>'
       + '<div class="lib-card-actions">'
       +   '<button data-action="profile">View profile</button>'
       +   '<button data-action="rerank">Re-rank</button>'
       +   '<button data-action="publish" class="'+(p.publishedToSelection?'is-published':'')+'">'+(p.publishedToSelection?'Hide from Selection':'Show on Selection')+'</button>'
+      +   (belowOk
+            ? '<button data-action="publishBelow" class="'+(p.publishedToBelowThreshold?'is-published-below':'')+'">'+(p.publishedToBelowThreshold?'Hide from Below-Threshold':'Show on Below-Threshold')+'</button>'
+            : '<button data-action="publishBelow" disabled title="Only projects below 200 can be published here.">Show on Below-Threshold</button>')
       +   '<button class="primary" data-action="decide">Update status</button>'
       + '</div>';
     card.addEventListener('click', function(e){
@@ -4535,6 +4565,7 @@ function renderLibrary() {
       else if (act === 'rerank') { currentProjectId = p.id; switchView('input'); toast('Update materials, then run evaluation to re-rank', 'i'); }
       else if (act === 'decide') openDecisionModal(p.id);
       else if (act === 'publish') toggleSelectionVisibility(p.id);
+      else if (act === 'publishBelow') toggleBelowThresholdVisibility(p.id);
     });
     grid.appendChild(card);
   });
