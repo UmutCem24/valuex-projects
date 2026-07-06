@@ -1,0 +1,9 @@
+{
+  "name": "valuex-workstation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "VALUEX Evaluation Workstation — Netlify Functions backend for the shared project library",
+  "dependencies": {
+    "@netlify/blobs": "latest"
+  }
+}
