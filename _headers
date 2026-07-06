@@ -1,0 +1,17 @@
+# Netlify picks this file up automatically at deploy time — it must sit in
+# the publish directory (same folder as netlify.toml and the HTML files).
+#
+# This protects ONLY the internal workstation tool with a shared username/
+# password (HTTP Basic Auth). The public marketing pages (index.html,
+# selection.html, project-*.html) are intentionally left open, since
+# selection.html is meant to be seen by investors.
+#
+# Works on every Netlify plan (Free included) — this is not the paid
+# dashboard "Password Protection" feature, it's a plain HTTP auth header.
+#
+# To change the username/password: edit the line below and push again.
+# To protect the WHOLE site instead of just the workstation, replace the
+# path "/valuex-workstation.html" with "/*".
+
+/valuex-workstation.html
+  Basic-Auth: valuex 8Ml6MdZNzIP9KYOH
