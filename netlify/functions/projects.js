@@ -10,13 +10,20 @@
 // shared JSON store (Netlify Blobs) that any visitor to the published site
 // reads from and writes to, so the library is the same everywhere.
 //
-// GET  /.netlify/functions/projects           -> full list, every field (workstation-internal use, unchanged).
-// GET  /.netlify/functions/projects?public=1  -> only projects with publishedToSelection===true, and only
-//                                                 the fields selection.html needs — internal pipeline fields
-//                                                 (status, ratingHistory, next_step, contradictions, missing
-//                                                 evidence, reviewer notes) are left out on purpose since this
-//                                                 path is read by the public, unauthenticated Selection page.
-// POST /.netlify/functions/projects           -> replaces the full project list (unchanged).
+// GET  /.netlify/functions/projects                    -> full list, every field (workstation-internal use, unchanged).
+// GET  /.netlify/functions/projects?public=1            -> only projects with publishedToSelection===true, public-safe fields.
+// GET  /.netlify/functions/projects?belowThreshold=1    -> only projects with publishedToBelowThreshold===true AND total<200,
+//                                                           same public-safe fields. Used by below-threshold.html.
+// GET  /.netlify/functions/projects?slug=X[&id=Y]       -> a single project (public-safe fields), matched by id first,
+//                                                           then by slug — but ONLY if it's published to Selection or to
+//                                                           Below-Threshold. Used by project.html so one detail page can
+//                                                           serve both public listings without downloading either full list.
+// POST /.netlify/functions/projects                    -> replaces the full project list (unchanged).
+//
+// In every case above, internal pipeline fields (status, ratingHistory,
+// next_step, contradictions, missing evidence, reviewer notes, uploaded file
+// names) are left out on purpose, since these paths are read by public,
+// unauthenticated pages.
 //
 // Netlify Blobs needs zero setup on Netlify's side — no database to
 // provision, no connection string. It just needs this function (and the
@@ -35,10 +42,11 @@ const cors = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-// Fields exposed to the public Selection page. Deliberately excludes
-// internal-only pipeline data: status (pending/approved/declined/revisit),
-// ratingHistory, next_step, contradictions, missing, and anything else not
-// listed here. Add a field here only if it's meant to be public.
+// Fields exposed to the public pages (Selection and Below-Threshold alike).
+// Deliberately excludes internal-only pipeline data: status
+// (pending/approved/declined/revisit), ratingHistory, next_step,
+// contradictions, missing, and anything else not listed here. Add a field
+// here only if it's meant to be public.
 // Note: 'summary' is included in the source object but its value is always
 // REPLACED by buildPublicSummary() below before this ever leaves the
 // server — the raw AI-generated summary (which can mention uploaded file
@@ -48,8 +56,18 @@ const PUBLIC_FIELDS = [
   'summary', 'total', 'band', 'recommendation',
   'strengths', 'weaknesses', 'dimensions', 'scores', 'founderScores',
   'website', 'founder', 'founderLinkedin', 'logo',
-  'lastRunAt', 'publishedToSelection',
+  'lastRunAt', 'publishedToSelection', 'publishedToBelowThreshold',
 ];
+
+// Same slug rule used client-side in selection.html / below-threshold.html /
+// the workstation, so a project.html?slug=... link always resolves to the
+// same project everywhere.
+function slugify(name) {
+  return String(name || '').toLowerCase()
+    .replace(/²/g, '2').replace(/³/g, '3')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 // Investor-facing display names for the 7 scoring dimensions — a little
 // more polished than the internal short codes (e.g. "Tech" -> "Technology").
@@ -97,11 +115,11 @@ function topBottomDims(dimensions) {
   return { top: arr.slice(0, 2), bottom: arr.slice(-2) };
 }
 
-// Builds the 2-sentence, investor-ready summary shown on selection.html cards
-// and on project.html — generated fresh from structured fields (sector, stage,
-// band, dimension scores) rather than passed through from the AI's raw
-// "summary" text, so it never carries file names, internal notes, or
-// awkward auto-generated phrasing onto the public site.
+// Builds the 2-sentence, investor-ready summary shown on selection.html cards,
+// below-threshold.html cards, and project.html — generated fresh from
+// structured fields (sector, stage, band, dimension scores) rather than
+// passed through from the AI's raw "summary" text, so it never carries file
+// names, internal notes, or awkward auto-generated phrasing onto public pages.
 function buildPublicSummary(p) {
   const name = p.name || 'This project';
   const sector = shortSectorLabel(p.sector);
@@ -137,6 +155,9 @@ export default async (req) => {
   const store = getStore({ name: STORE_NAME, consistency: 'strong' });
   const url = new URL(req.url);
   const isPublic = url.searchParams.get('public') === '1';
+  const isBelowThreshold = url.searchParams.get('belowThreshold') === '1';
+  const lookupSlug = (url.searchParams.get('slug') || '').trim().toLowerCase();
+  const lookupId = (url.searchParams.get('id') || '').trim();
 
   if (req.method === 'GET') {
     let list = [];
@@ -145,8 +166,47 @@ export default async (req) => {
     } catch (err) {
       console.error('projects GET failed:', err);
     }
+
+    // Single-project lookup for project.html — works for a project published
+    // to EITHER public page, so the detail page doesn't need to know (or
+    // download) which listing it came from.
+    //
+    // IMPORTANT: id is checked in its own pass, BEFORE falling back to slug.
+    // Two projects can end up with the same slug (same name evaluated twice,
+    // or a name collision) and the library can be reordered (drag-to-reorder
+    // in the workstation), so a combined "id OR slug" match risks Array.find()
+    // returning an earlier, unrelated record that merely shares the slug —
+    // which could easily be an unpublished duplicate, producing exactly a
+    // false "Not found" (or worse, the wrong project) for a project that IS
+    // published. Resolving id and slug as two separate, ordered passes avoids
+    // that entirely: an id always identifies one exact record.
+    if (lookupSlug || lookupId) {
+      let match = null;
+      if (lookupId) {
+        match = list.find((p) => p && p.id === lookupId);
+      }
+      if (!match && lookupSlug) {
+        match = list.find((p) => p && slugify(p.name) === lookupSlug);
+      }
+      const visible = match && (match.publishedToSelection === true || match.publishedToBelowThreshold === true);
+      if (!visible) {
+        return new Response(JSON.stringify({ error: 'Not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors },
+        });
+      }
+      return new Response(JSON.stringify(toPublicShape(match)), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors },
+      });
+    }
+
     if (isPublic) {
       list = list.filter((p) => p && p.publishedToSelection === true).map(toPublicShape);
+    } else if (isBelowThreshold) {
+      list = list
+        .filter((p) => p && p.publishedToBelowThreshold === true && typeof p.total === 'number' && p.total < 200)
+        .map(toPublicShape);
     }
     return new Response(JSON.stringify(list), {
       status: 200,
@@ -154,7 +214,7 @@ export default async (req) => {
         'Content-Type': 'application/json',
         // Public reads can be cached briefly at the edge; internal reads stay uncached
         // (the workstation UI wants to see its own writes immediately).
-        'Cache-Control': isPublic ? 'public, max-age=30' : 'no-store',
+        'Cache-Control': (isPublic || isBelowThreshold) ? 'public, max-age=30' : 'no-store',
         ...cors,
       },
     });
