@@ -1359,7 +1359,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
               <span class="legend-pill V" data-tip="VERIFIED — Highest tier. The claim is externally checkable through an independent source: a third-party audit, on-chain data, a named lead investor that we can confirm, an SEC filing, a press release from a credible outlet. The score is fully defensible to the deal team."><span class="dot"></span> V · Verified</span>
               <span class="legend-pill S" data-tip="SUPPORTED — Strong tier. The claim is backed by an artifact the founder uploaded: a whitepaper, a financial model, a working demo link, a public docs site, a technical architecture document. The score has direct supporting material attached."><span class="dot"></span> S · Supported</span>
               <span class="legend-pill I" data-tip="INFERRED — Mid tier. We drew this from adjacent signals rather than a direct artifact. Examples: team strength from LinkedIn profiles, market size from sector activity, tech maturity from GitHub commit history. Reasonable to conclude but not directly proven."><span class="dot"></span> I · Inferred</span>
-              <span class="legend-pill C" data-tip="FOUNDER CLAIM — Lowest tier. The founder asserted this in the deck or Typeform but no supporting artifact exists. This is why the score is capped at 4/6 by the methodology: unsupported claims do not lift into the strong/excellent range, regardless of confidence in the statement."><span class="dot"></span> C · Claim only</span>
+              <span class="legend-pill C" data-tip="FOUNDER CLAIM — Lowest tier. The founder asserted this in the deck or Typeform but no supporting artifact exists. A coherent, consistent claim can still reach 4/6 ('Good') under the methodology — but not the strong/excellent range, which requires independent or artifact-backed evidence."><span class="dot"></span> C · Claim only</span>
               <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text-3);">Hover any cell for details</span>
             </div>
             <div class="card-body" style="padding:0;">
@@ -1367,7 +1367,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
                 <div class="st-row-head">
                   <div data-tip="Criterion number (1–17). Fixed order matching the VALUEX rubric.">#</div>
                   <div data-tip="The criterion being evaluated and the one-line note VALUEX attached explaining the score.">Criterion · VALUEX note</div>
-                  <div data-tip="Score 1–6.\n\n1 = absent or contradicted\n2 = very weak\n3 = adequate (claim-only cap)\n4 = good\n5 = strong\n6 = excellent\n\nHover any cell for full explanation.">Score</div>
+                  <div data-tip="Score 1–6.\n\n1 = absent or contradicted\n2 = weak (real gap)\n3 = adequate (default for a good-faith, gap-typical submission)\n4 = good (claim-only cap)\n5 = strong\n6 = excellent\n\nHover any cell for full explanation.">Score</div>
                   <div data-tip="Confidence in the score.\n\nH = High (strong direct evidence)\nM = Medium (typical inference quality)\nL = Low (limited signal — score could shift)">Conf</div>
                   <div data-tip="Evidence tier — see the legend above for full meanings. Determines whether the score is fully defensible (V), backed by an artifact (S), inferred (I), or based on founder claim only (C).">Evidence</div>
                   <div data-tip="Dimension weight applied to this criterion. The criterion contributes to its dimension's average × weight × 60 formula.">Weight</div>
@@ -1602,13 +1602,13 @@ red_flags      ← detect_red_flags(all_inputs)
 
         <div class="method-block" id="m3">
           <h2><span class="step">3</span> How each 1–6 score is decided</h2>
-          <p class="sub">Strict, investor-minded scoring. The score is not "how nice does this sound" — it's "how well-proven is this, against a high-quality bar." The same anchors apply to every project so rankings stay comparable.</p>
+          <p class="sub">Evidence-based, investor-minded scoring — fair rather than punitive. The score is "how well-proven is this, against a bar appropriate to the project's stage," with the benefit of the doubt going to a coherent, good-faith submission. The same anchors apply to every project so rankings stay comparable.</p>
           <div class="bands-strip">
-            <div class="band-row"><div class="range r1">1 – 2</div><div>Absent, contradicted, or claimed with no support. Hype without proof lands here.</div><div class="rec c1">Weak</div></div>
-            <div class="band-row"><div class="range r2">3 – 4</div><div>Plausible and partially evidenced, but gaps remain. Potential visible, readiness not yet proven.</div><div class="rec c3">Adequate</div></div>
+            <div class="band-row"><div class="range r1">1 – 2</div><div>Absent, contradicted, or a genuine red flag — not merely the incompleteness typical of an early-stage project.</div><div class="rec c1">Weak</div></div>
+            <div class="band-row"><div class="range r2">3 – 4</div><div>Plausible and reasonably evidenced for the project's stage. This is the default landing zone for a competent, good-faith submission.</div><div class="rec c3">Adequate / Good</div></div>
             <div class="band-row"><div class="range r3">5 – 6</div><div>Strong and well-evidenced — externally verifiable or backed by a working artifact.</div><div class="rec c4">Strong</div></div>
           </div>
-          <div class="callout-row" style="margin-top:14px;"><span class="tag">Hard rules</span> &nbsp; A strong <b>claim with no supporting artifact is capped at 4</b>. Contradictions push the score down. Pre-revenue stage is <b>not</b> penalised for zero revenue (stage-aware), but a "Scaling" stage with zero revenue is. Hype words never lift a score on their own.</div>
+          <div class="callout-row" style="margin-top:14px;"><span class="tag">Hard rules</span> &nbsp; A coherent <b>claim with no supporting artifact is capped at 4</b>, not lower. Contradictions push the score down. Pre-revenue stage is <b>not</b> penalised for zero revenue (stage-aware), but a "Scaling" stage with zero revenue is. Hype words never lift a score on their own — but a specific, internally-consistent narrative counts in the project's favor.</div>
         </div>
 
         <div class="method-block" id="m4">
@@ -2505,15 +2505,16 @@ var VALUEX_SYSTEM_PROMPT = [
   "TECHX (no token): Market 0.30 / Tech 0.20 / Sales 0.13 / Econ 0.07 / Skill 0.20 / Engagement 0.05 / Security 0.05",
   "WEB3X (token):    Market 0.20 / Tech 0.20 / Sales 0.10 / Econ 0.20 / Skill 0.15 / Engagement 0.10 / Security 0.05",
   "",
-  "SCORING (strict, evidence-based 1-6):",
+  "SCORING (evidence-based 1-6, fair but not punitive):",
   "- Score each criterion on an ABSOLUTE scale, not relative to other projects:",
-  "    1 Absent (no evidence / not addressed) · 2 Weak (mentioned, unsubstantiated) · 3 Partial (some evidence, gaps)",
-  "    4 Adequate (clear, supported, unremarkable — also the ceiling for claim-only evidence) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class)",
+  "    1 Absent (no evidence / not addressed) · 2 Weak (mentioned, unsubstantiated, real gap) · 3 Adequate (some evidence, plausible narrative — the default for a competent, good-faith submission with gaps typical of its stage)",
+  "    4 Good (clearly evidenced, on par with strong peers — also the ceiling for claim-only evidence) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class)",
   "- The 'note' MUST justify the exact value against this scale (e.g. why a 4 and not a 3 or 5).",
-  "- Two projects with materially different evidence must NOT land on the same score. If community engagement is strong for one and weak for another, they cannot both be 4 — reserve 4 for genuinely adequate, score weak engagement 2-3.",
+  "- Default to the generous end of a plausible score range: reserve 1-2 for genuine red flags or silence on the criterion, not merely for incompleteness that is typical of the project's stage. When evidence plausibly supports two adjacent scores, take the higher one.",
+  "- Projects still need to be fairly distinguishable on genuinely strong vs genuinely weak evidence — reserve 5-6 for material that is actually well-evidenced or verified. But a weak-yet-plausible item (e.g. early-stage community engagement) should land at 3, not be pushed to the floor of the scale — the goal is fair differentiation, not maximum spread.",
   "- Judge each criterion by its relevance to THIS project's business model and profile; do not pattern-match a default number.",
-  "- Unsupported claim caps the score at 4 (raised from a stricter 3-cap by policy decision — a bare claim can now reach 'adequate' but never 'strong'; 5 and 6 still strictly require V/S/I evidence, never C alone)",
-  "- Hype words ('leading','revolutionary','first') do not lift score",
+  "- Unsupported claim caps the score at 4 — a bare, internally-consistent founder claim can reach 'Good' but never 'Strong'; 5 and 6 still strictly require V/S/I evidence, never C alone.",
+  "- Hype words ('leading','revolutionary','first') do not lift score on their own, but a specific, coherent, internally-consistent narrative is a positive signal even without a hard artifact.",
   "- Contradictions push the score down",
   "- Stage-aware: pre-revenue MVPs not penalized for 0 revenue on c7; Scaling stage is",
   "- For TECHX profile, criteria 9 and 10 are null (skipped)",
@@ -2569,9 +2570,9 @@ var CRITERIA_DIM = ["Market","Market","Market","Tech","Sales","Sales","Sales","E
 var EXPLAIN = {
   scores: {
     1: '1/6 — ABSENT.\nThe criterion is not addressed in the submission, or what was claimed has been contradicted by evidence.',
-    2: '2/6 — VERY WEAK.\nMentioned but unsupported, or there is a serious gap. Below the level needed for a strong project at this stage.',
-    3: '3/6 — ADEQUATE.\nPlausible with notable gaps. Below the ceiling for claim-only items, so this still leaves room for a claim-only score to move up if the founder later supplies a supporting artifact.',
-    4: '4/6 — GOOD.\nPartly evidenced, real but with headroom for improvement. This is also the score cap for claim-only items: an unsupported assertion never lifts above 4/6, regardless of how confident it sounds — 5 and 6 require independent or artifact-backed evidence.',
+    2: '2/6 — WEAK.\nMentioned but unsupported, with a real gap — reserved for genuine red flags, not just the incompleteness typical of an early-stage submission.',
+    3: '3/6 — ADEQUATE.\nSome evidence and a plausible narrative. This is the default landing spot for a competent, good-faith submission with gaps typical of its stage — not a demerit.',
+    4: '4/6 — GOOD.\nClearly evidenced, on par with strong peers. This is also the score cap for claim-only items: an unsupported-but-coherent assertion can reach 4/6, but 5 and 6 require independent or artifact-backed evidence.',
     5: '5/6 — STRONG.\nWell-evidenced and externally checkable. The criterion is a genuine strength that the project can lean on.',
     6: '6/6 — EXCELLENT.\nBest-in-class for the project\'s stage and sector. Independently verified and defensible to the deal team.'
   },
@@ -2579,7 +2580,7 @@ var EXPLAIN = {
     V: 'VERIFIED — Highest tier.\n\nThe claim is externally checkable through an independent source: a third-party audit, on-chain data, a named lead investor that we can confirm, an SEC filing, a press release from a credible outlet. The score is fully defensible to the deal team.',
     S: 'SUPPORTED — Strong tier.\n\nThe claim is backed by an artifact the founder uploaded: a whitepaper, a financial model, a working demo link, a public docs site, a technical architecture document. The score has direct supporting material attached.',
     I: 'INFERRED — Mid tier.\n\nWe drew this from adjacent signals rather than a direct artifact. Examples: team strength from LinkedIn profiles, market size from sector activity, tech maturity from GitHub commit history. Reasonable to conclude but not directly proven.',
-    C: 'FOUNDER CLAIM — Lowest tier.\n\nThe founder asserted this in the deck or Typeform but no supporting artifact exists. This is why the score is capped at 4/6 by the methodology: unsupported claims do not lift into the strong/excellent range, regardless of confidence in the statement.'
+    C: 'FOUNDER CLAIM — Lowest tier.\n\nThe founder asserted this in the deck or Typeform but no supporting artifact exists. A coherent, internally-consistent claim can still reach 4/6 ("Good") under the methodology — but not the strong/excellent range, which requires independent or artifact-backed evidence.'
   },
   conf: {
     H: 'HIGH confidence.\n\nStrong evidence directly supports the score. Unlikely to shift materially with further investigation. Deal team can rely on this scoring.',
