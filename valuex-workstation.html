@@ -131,6 +131,16 @@ input, textarea, select { font-family: inherit; }
 .ps-crit-tag { font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; flex-shrink: 0; }
 .ps-empty, .ps-error { padding: 14px; font-size: 12px; color: var(--text-3); font-style: italic; }
 .ps-error { color: var(--amber, #c08715); font-style: normal; }
+.ps-delta { font-family: var(--mono); font-size: 10.5px; font-weight: 700; flex-shrink: 0; white-space: nowrap; }
+.ps-delta.up { color: var(--green, #3f9e63); }
+.ps-delta.down { color: var(--red, #d9685f); }
+.ps-delta.flat { color: var(--text-3); }
+.ps-impact-strip { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; padding: 12px 18px; background: rgba(110,81,145,0.08); border: 1px solid rgba(110,81,145,0.24); border-radius: 10px; font-size: 12.5px; }
+.ps-impact-strip .ic { font-size: 16px; flex-shrink: 0; }
+.ps-impact-strip .txt { flex: 1; color: var(--text-2); }
+.ps-impact-strip .txt b { color: var(--purple); }
+.ps-impact-strip .jump { font-family: var(--mono); font-size: 11px; color: var(--purple); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+.ps-impact-strip .jump:hover { text-decoration: underline; }
 .fld-lab .req { color: var(--purple); font-family: var(--mono); font-size: 11px; font-weight: 700; }
 .fld input, .fld textarea, .fld select { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 13px; font-size: 12px; color: var(--text); transition: border-color 0.12s, box-shadow 0.12s; }
 .fld input::placeholder, .fld textarea::placeholder { color: var(--text-4); }
@@ -1294,6 +1304,11 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
             <div id="er-rec"></div>
           </div>
         </div>
+        <div class="ps-impact-strip" id="er-pubsig-strip" style="display:none;">
+          <span class="ic">🌐</span>
+          <span class="txt">Public signals applied to this score: <b id="er-pubsig-strip-count">0</b> finding(s) · net <b id="er-pubsig-strip-delta">+0.0 pts</b> of the total <span style="color:var(--text-3);font-weight:400;">(before signals: <span id="er-pubsig-strip-base">—</span>/360)</span></span>
+          <a href="#card-public-signals" class="jump" id="er-pubsig-strip-jump">View detail ↓</a>
+        </div>
         <div class="eval-body">
 
           <div class="grid-2col">
@@ -1408,7 +1423,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
             </div>
           </div>
 
-          <div class="card-ev">
+          <div class="card-ev" id="card-public-signals">
             <div class="card-head"><h3>🌐 Public Signal Impact <span class="help-ico" data-tip="Concrete, dated updates found on the pasted public links (website, press, social, technical, funding/investor sources) that influenced this scoring — separate from the deck and Typeform. Only specific, sourced updates can move a score; vague claims are ignored. This panel is internal-only and never appears on the public Selection or Below-Threshold pages.">?</span></h3><span class="meta" id="er-pubsig-meta"></span></div>
             <div class="card-body" id="er-public-signals"></div>
           </div>
@@ -2523,6 +2538,7 @@ var VALUEX_SYSTEM_PROMPT = [
   "STRICT RULE: a public signal may adjust a criterion's score ONLY if it is dated (or unambiguously recent) AND specific (names, numbers, or a named source) AND checkable at the URL given. Vague marketing language ('growing fast', 'strong community', 'exciting partnership', 'huge milestone') must be ignored outright — it must not move any score in either direction.",
   "Tier every public signal you actually use with the same V/S/I/C scale: V only if independently verifiable at a named authoritative source (press outlet, on-chain explorer, official audit registry, government/regulatory record); S if the linked page itself directly documents the specific claim; I if reasonably inferred from an indirect signal (e.g. commit-activity pattern on GitHub); a public signal alone must never justify C — Claim-only stays reserved for unverified founder assertions.",
   "If you use a public signal to influence a criterion, say so briefly in that criterion's own 'note' (cite the source type, e.g. 'confirmed via press release'), and also list it in 'publicSignalImpact' for audit purposes.",
+  "For each entry in 'publicSignalImpact', set 'scoreDelta' to the integer number of points (on the criterion's own 1-6 scale) that THIS specific finding shifted the score, versus what the criterion would have scored on the deck/Typeform/files alone. Typically -2 to +2. Use 0 only for 'confirmed_existing' (the public evidence reinforces a score that was already adequately evidenced without it, so it didn't move anything). Be conservative: most public signals should shift a score by 1 point, not 2 — reserve 2 only for a genuinely material, well-verified update.",
   "If web_search is unavailable in this environment, or a link cannot be reached, evaluate from the deck/Typeform/files only and leave 'publicSignalImpact' empty — never guess at what an unreachable page might say.",
   "",
   "Return ONLY a single JSON object, no prose, no markdown fence. Be compact. Match this exact shape:",
@@ -2533,7 +2549,7 @@ var VALUEX_SYSTEM_PROMPT = [
   '"strengths":["<=18 word strength" * up to 4],"weaknesses":["<=18 word weakness" * up to 4],',
   '"contradictions":[{"sev":"H"|"M"|"L","desc":"<=20 words","src":"source A <-> source B"} * up to 3],',
   '"missing":[{"sev":"H"|"M"|"L","crit":num,"desc":"<=18 words"} * up to 3],',
-  '"publicSignalImpact":[{"criterion":1-17,"finding":"<=20 word dated, specific update","evidenceTier":"V"|"S"|"I"|"C","sourceUrl":"string","effect":"raised"|"lowered"|"confirmed_existing"} * up to 8, or [] if no public links were provided or none checked out],',
+  '"publicSignalImpact":[{"criterion":1-17,"finding":"<=20 word dated, specific update","evidenceTier":"V"|"S"|"I"|"C","sourceUrl":"string","effect":"raised"|"lowered"|"confirmed_existing","scoreDelta":int} * up to 8, or [] if no public links were provided or none checked out],',
   '"next_step":"single sentence operational next step"}'
 ].join("\n");
 
@@ -3392,24 +3408,64 @@ function renderEvaluation(d) {
 
   // public signal impact — external updates found on pasted links, internal-only
   var psImpactDiv = document.getElementById('er-public-signals');
+  var psStrip = document.getElementById('er-pubsig-strip');
   if (psImpactDiv) {
     psImpactDiv.innerHTML = '';
     var impacts = d.publicSignalImpact || [];
     var effectIcon = { raised: '▲', lowered: '▼', confirmed_existing: '●' };
+
+    // Same weighting math the rest of the app uses (see the "points if fixed"
+    // scatter): pts = (scoreDelta / criteria-in-that-dimension) * dimension-weight * 60.
+    // This turns each finding's 1-6-scale nudge into an actual, comparable
+    // out-of-360 point figure, so "how did this affect the ranking" has a
+    // real answer instead of just a list of bullet points.
+    var dimWeights = {}, dimCounts = {};
+    (d.dimensions || []).forEach(function(dm){ dimWeights[dm.name] = dm.weight || 0; });
+    (d.scores || []).forEach(function(s){
+      if (s.score === null || s.score === undefined) return;
+      var dn = CRITERIA_DIM[s.id - 1];
+      if (dn) dimCounts[dn] = (dimCounts[dn] || 0) + 1;
+    });
+    var totalPtsImpact = 0;
+
     impacts.forEach(function(f){
       var tier = (f.evidenceTier || 'C').toUpperCase();
       var critLabel = f.criterion ? ('C' + f.criterion + ' · ' + (CRITERIA_NAMES[f.criterion-1] || '')) : '';
+      var dn = f.criterion ? CRITERIA_DIM[f.criterion - 1] : null;
+      var n = dn ? (dimCounts[dn] || 1) : 1;
+      var w = dn ? (dimWeights[dn] || 0) : 0;
+      var delta = (typeof f.scoreDelta === 'number') ? f.scoreDelta : 0;
+      var pts = (delta / n) * w * 60;
+      totalPtsImpact += pts;
+      var deltaCls = pts > 0.05 ? 'up' : (pts < -0.05 ? 'down' : 'flat');
+      var deltaTxt = pts === 0 ? '±0.0' : ((pts > 0 ? '+' : '') + pts.toFixed(1));
       var it = document.createElement('div');
       it.className = 'ps-finding';
       it.innerHTML =
         '<span class="ps-tier ' + tier + '">' + tier + '</span>'
         + '<span style="flex:1;">' + escapeHTML(f.finding || '') + (f.sourceUrl ? ' <a href="' + escapeAttr(f.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--text-3);font-size:11px;">↗</a>' : '') + '</span>'
-        + '<span class="ps-crit-tag">' + (effectIcon[f.effect] || '') + ' ' + escapeHTML(critLabel) + '</span>';
+        + '<span class="ps-crit-tag">' + (effectIcon[f.effect] || '') + ' ' + escapeHTML(critLabel) + '</span>'
+        + '<span class="ps-delta ' + deltaCls + '">' + deltaTxt + ' pts</span>';
       psImpactDiv.appendChild(it);
     });
     if (!impacts.length) psImpactDiv.innerHTML = '<div class="ps-empty">No public-link updates were used in this scoring — either no links were provided, or nothing on them was concrete and dated enough to move a score.</div>';
     var psMeta = document.getElementById('er-pubsig-meta');
-    if (psMeta) psMeta.textContent = impacts.length + ' applied';
+    if (psMeta) psMeta.textContent = impacts.length + ' applied' + (impacts.length ? ' · net ' + (totalPtsImpact >= 0 ? '+' : '') + totalPtsImpact.toFixed(1) + ' pts' : '');
+
+    // Top-of-page summary strip — only shown when at least one signal actually moved the score.
+    if (psStrip) {
+      if (impacts.length && Math.abs(totalPtsImpact) > 0.05) {
+        psStrip.style.display = 'flex';
+        document.getElementById('er-pubsig-strip-count').textContent = impacts.length;
+        var deltaEl = document.getElementById('er-pubsig-strip-delta');
+        deltaEl.textContent = (totalPtsImpact >= 0 ? '+' : '') + totalPtsImpact.toFixed(1) + ' pts';
+        deltaEl.style.color = totalPtsImpact >= 0 ? 'var(--green, #3f9e63)' : 'var(--red, #d9685f)';
+        var baseEl = document.getElementById('er-pubsig-strip-base');
+        if (baseEl && typeof d.total === 'number') baseEl.textContent = (d.total - totalPtsImpact).toFixed(1);
+      } else {
+        psStrip.style.display = 'none';
+      }
+    }
   }
 
   // next step
