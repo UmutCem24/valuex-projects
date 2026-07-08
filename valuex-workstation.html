@@ -1289,7 +1289,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
       <div id="eval-results" style="display:none;">
         <div class="demo-banner" id="demo-banner">
           <span class="badge">Demo</span>
-          <span class="body"><b>Simulated evaluation.</b> The Anthropic API isn't reachable from this view (CORS / no backend proxy). The scoring below is generated deterministically from your inputs to demo the UI. Point <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">EVAL_ENDPOINT</span> in the script to your backend to make it live.</span>
+          <span class="body" id="demo-banner-text"><b>Simulated evaluation.</b> The live evaluation proxy isn't reachable. The scoring below is generated deterministically from your inputs to demo the UI. This usually means <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">ANTHROPIC_API_KEY</span> isn't set in this Netlify site's environment variables yet — see <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">netlify/functions/evaluate.js</span> for the one-time setup.</span>
           <button class="close" id="demo-banner-close">Dismiss</button>
         </div>
         <div class="brand-lockup" id="er-lockup"></div>
@@ -1359,7 +1359,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
               <span class="legend-pill V" data-tip="VERIFIED — Highest tier. The claim is externally checkable through an independent source: a third-party audit, on-chain data, a named lead investor that we can confirm, an SEC filing, a press release from a credible outlet. The score is fully defensible to the deal team."><span class="dot"></span> V · Verified</span>
               <span class="legend-pill S" data-tip="SUPPORTED — Strong tier. The claim is backed by an artifact the founder uploaded: a whitepaper, a financial model, a working demo link, a public docs site, a technical architecture document. The score has direct supporting material attached."><span class="dot"></span> S · Supported</span>
               <span class="legend-pill I" data-tip="INFERRED — Mid tier. We drew this from adjacent signals rather than a direct artifact. Examples: team strength from LinkedIn profiles, market size from sector activity, tech maturity from GitHub commit history. Reasonable to conclude but not directly proven."><span class="dot"></span> I · Inferred</span>
-              <span class="legend-pill C" data-tip="FOUNDER CLAIM — Lowest tier. The founder asserted this in the deck or Typeform but no supporting artifact exists. This is why the score is capped at 3/6 by the methodology: unsupported claims do not lift above the mid-range, regardless of confidence in the statement."><span class="dot"></span> C · Claim only</span>
+              <span class="legend-pill C" data-tip="FOUNDER CLAIM — Lowest tier. The founder asserted this in the deck or Typeform but no supporting artifact exists. This is why the score is capped at 4/6 by the methodology: unsupported claims do not lift into the strong/excellent range, regardless of confidence in the statement."><span class="dot"></span> C · Claim only</span>
               <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text-3);">Hover any cell for details</span>
             </div>
             <div class="card-body" style="padding:0;">
@@ -1529,7 +1529,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
   citations[c]  ← VALUEX.cite(c)                 <span class="cmt">// [tf_q05, deck_p12, audit.pdf, ...]</span>
 
 <span class="sec">// HARD SCORING RULES</span>
-<span class="kw">rule</span>  claim_without_artifact   →  <span class="kw">cap</span> score <span class="kw">at</span> <span class="num">3</span>
+<span class="kw">rule</span>  claim_without_artifact   →  <span class="kw">cap</span> score <span class="kw">at</span> <span class="num">4</span>
 <span class="kw">rule</span>  hype_words               →  <span class="kw">do not</span> lift score
 <span class="kw">rule</span>  contradiction_present    →  <span class="kw">push</span> score <span class="kw">down</span>
 <span class="kw">rule</span>  stage_aware              →  pre-revenue ≠ scaling
@@ -1608,7 +1608,7 @@ red_flags      ← detect_red_flags(all_inputs)
             <div class="band-row"><div class="range r2">3 – 4</div><div>Plausible and partially evidenced, but gaps remain. Potential visible, readiness not yet proven.</div><div class="rec c3">Adequate</div></div>
             <div class="band-row"><div class="range r3">5 – 6</div><div>Strong and well-evidenced — externally verifiable or backed by a working artifact.</div><div class="rec c4">Strong</div></div>
           </div>
-          <div class="callout-row" style="margin-top:14px;"><span class="tag">Hard rules</span> &nbsp; A strong <b>claim with no supporting artifact is capped at 3</b>. Contradictions push the score down. Pre-revenue stage is <b>not</b> penalised for zero revenue (stage-aware), but a "Scaling" stage with zero revenue is. Hype words never lift a score on their own.</div>
+          <div class="callout-row" style="margin-top:14px;"><span class="tag">Hard rules</span> &nbsp; A strong <b>claim with no supporting artifact is capped at 4</b>. Contradictions push the score down. Pre-revenue stage is <b>not</b> penalised for zero revenue (stage-aware), but a "Scaling" stage with zero revenue is. Hype words never lift a score on their own.</div>
         </div>
 
         <div class="method-block" id="m4">
@@ -2508,11 +2508,11 @@ var VALUEX_SYSTEM_PROMPT = [
   "SCORING (strict, evidence-based 1-6):",
   "- Score each criterion on an ABSOLUTE scale, not relative to other projects:",
   "    1 Absent (no evidence / not addressed) · 2 Weak (mentioned, unsubstantiated) · 3 Partial (some evidence, gaps)",
-  "    4 Adequate (clear, supported, unremarkable) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class)",
+  "    4 Adequate (clear, supported, unremarkable — also the ceiling for claim-only evidence) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class)",
   "- The 'note' MUST justify the exact value against this scale (e.g. why a 4 and not a 3 or 5).",
   "- Two projects with materially different evidence must NOT land on the same score. If community engagement is strong for one and weak for another, they cannot both be 4 — reserve 4 for genuinely adequate, score weak engagement 2-3.",
   "- Judge each criterion by its relevance to THIS project's business model and profile; do not pattern-match a default number.",
-  "- Unsupported claim caps the score at 3",
+  "- Unsupported claim caps the score at 4 (raised from a stricter 3-cap by policy decision — a bare claim can now reach 'adequate' but never 'strong'; 5 and 6 still strictly require V/S/I evidence, never C alone)",
   "- Hype words ('leading','revolutionary','first') do not lift score",
   "- Contradictions push the score down",
   "- Stage-aware: pre-revenue MVPs not penalized for 0 revenue on c7; Scaling stage is",
@@ -2570,8 +2570,8 @@ var EXPLAIN = {
   scores: {
     1: '1/6 — ABSENT.\nThe criterion is not addressed in the submission, or what was claimed has been contradicted by evidence.',
     2: '2/6 — VERY WEAK.\nMentioned but unsupported, or there is a serious gap. Below the level needed for a strong project at this stage.',
-    3: '3/6 — ADEQUATE.\nPlausible with notable gaps. This is the score cap for claim-only items: an unsupported assertion never lifts above 3/6, regardless of how confident it sounds.',
-    4: '4/6 — GOOD.\nPartly evidenced, real but with headroom for improvement. Typical for promising-band projects.',
+    3: '3/6 — ADEQUATE.\nPlausible with notable gaps. Below the ceiling for claim-only items, so this still leaves room for a claim-only score to move up if the founder later supplies a supporting artifact.',
+    4: '4/6 — GOOD.\nPartly evidenced, real but with headroom for improvement. This is also the score cap for claim-only items: an unsupported assertion never lifts above 4/6, regardless of how confident it sounds — 5 and 6 require independent or artifact-backed evidence.',
     5: '5/6 — STRONG.\nWell-evidenced and externally checkable. The criterion is a genuine strength that the project can lean on.',
     6: '6/6 — EXCELLENT.\nBest-in-class for the project\'s stage and sector. Independently verified and defensible to the deal team.'
   },
@@ -2579,7 +2579,7 @@ var EXPLAIN = {
     V: 'VERIFIED — Highest tier.\n\nThe claim is externally checkable through an independent source: a third-party audit, on-chain data, a named lead investor that we can confirm, an SEC filing, a press release from a credible outlet. The score is fully defensible to the deal team.',
     S: 'SUPPORTED — Strong tier.\n\nThe claim is backed by an artifact the founder uploaded: a whitepaper, a financial model, a working demo link, a public docs site, a technical architecture document. The score has direct supporting material attached.',
     I: 'INFERRED — Mid tier.\n\nWe drew this from adjacent signals rather than a direct artifact. Examples: team strength from LinkedIn profiles, market size from sector activity, tech maturity from GitHub commit history. Reasonable to conclude but not directly proven.',
-    C: 'FOUNDER CLAIM — Lowest tier.\n\nThe founder asserted this in the deck or Typeform but no supporting artifact exists. This is why the score is capped at 3/6 by the methodology: unsupported claims do not lift above the mid-range, regardless of confidence in the statement.'
+    C: 'FOUNDER CLAIM — Lowest tier.\n\nThe founder asserted this in the deck or Typeform but no supporting artifact exists. This is why the score is capped at 4/6 by the methodology: unsupported claims do not lift into the strong/excellent range, regardless of confidence in the statement.'
   },
   conf: {
     H: 'HIGH confidence.\n\nStrong evidence directly supports the score. Unlikely to shift materially with further investigation. Deal team can rely on this scoring.',
@@ -2781,7 +2781,7 @@ async function scanPublicSignals() {
         max_tokens: 1200,
         temperature: 0,
         system: PUBLIC_SIGNAL_SCAN_PROMPT,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }],
         messages: [{ role: 'user', content: 'Public links to check:\n\n' + groupLines }]
       })
     });
@@ -2808,8 +2808,13 @@ async function scanPublicSignals() {
   }
 }
 
-// Configure this if you have your own backend proxy. Leave as the direct API for in-claude.ai use.
-var EVAL_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+// Server-side proxy (netlify/functions/evaluate.js) — holds the real API key
+// as a secret env var and forwards to Anthropic. This is what makes live
+// evaluation (and the public-signal web search) actually work once deployed,
+// instead of silently falling back to demo mode. Requires ANTHROPIC_API_KEY
+// to be set in this Netlify site's environment variables — see the comment
+// at the top of that function for the one-time setup steps.
+var EVAL_ENDPOINT = '/.netlify/functions/evaluate';
 
 async function runVALUEXEvaluation() {
   if (uploadedFiles.length === 0) {
@@ -2842,6 +2847,7 @@ async function runVALUEXEvaluation() {
 
   var evalData = null;
   var isDemo = false;
+  var demoReason = '';
 
   try {
     // ---- Attempt real VALUEX call ----
@@ -2911,7 +2917,7 @@ async function runVALUEXEvaluation() {
         max_tokens: 1000,
         temperature: 0,
         system: VALUEX_SYSTEM_PROMPT,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }],
         messages: [{ role: 'user', content: content }]
       })
     });
@@ -2929,6 +2935,7 @@ async function runVALUEXEvaluation() {
     // ---- Fallback: demo mode ----
     console.warn('Live API unreachable, falling back to demo mode:', err);
     isDemo = true;
+    demoReason = (err && err.message) ? err.message : '';
     setLoadingStep(2);
     await sleep(900);
     setLoadingStep(3);
@@ -2953,7 +2960,7 @@ async function runVALUEXEvaluation() {
   evalData.includeCompetitors = (evalData.includeCompetitors !== false);
 
   renderEvaluation(evalData);
-  toggleDemoBanner(isDemo);
+  toggleDemoBanner(isDemo, demoReason);
   hideLoading();
   enableTopBarButtons();
   renderReport(evalData);
@@ -2963,10 +2970,18 @@ async function runVALUEXEvaluation() {
 
 function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
 
-function toggleDemoBanner(show) {
+function toggleDemoBanner(show, reason) {
   var b = document.getElementById('demo-banner');
   if (!b) return;
-  if (show) b.classList.add('show'); else b.classList.remove('show');
+  if (show) {
+    b.classList.add('show');
+    var txt = document.getElementById('demo-banner-text');
+    if (txt && reason) {
+      txt.innerHTML = '<b>Simulated evaluation.</b> The live evaluation proxy returned an error, so this was generated deterministically from your inputs to demo the UI instead. Actual response: <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">' + escapeHTML(reason) + '</span>';
+    }
+  } else {
+    b.classList.remove('show');
+  }
 }
 var dbc = document.getElementById('demo-banner-close');
 if (dbc) dbc.addEventListener('click', function(){ toggleDemoBanner(false); });
@@ -3533,7 +3548,7 @@ function renderHowRanking(d) {
     + '</b> profile, and the weighted dimensions sum to a total out of <b>360</b>. The <b>200</b> line is the listing threshold.';
 
   var steps = [
-    ['1', 'Each of the 17 criteria is scored <b>1\u20136</b> against the rubric. An evidence tier (V / S / I / C) is attached — a <b>claim-only</b> criterion is capped at 3, so unverified assertions cannot inflate the result.'],
+    ['1', 'Each of the 17 criteria is scored <b>1\u20136</b> against the rubric. An evidence tier (V / S / I / C) is attached — a <b>claim-only</b> criterion is capped at 4, so unverified assertions cannot reach the strong/excellent range.'],
     ['2', 'Criteria are grouped into <b>7 dimensions</b> (Market, Tech, Sales, Econ, Skill, Engagement, Security). Each dimension takes the <b>average</b> of its criteria.'],
     ['3', 'Each dimension average is multiplied by its <b>profile weight</b> and by <b>60</b>: <span class="mono">avg \u00d7 weight \u00d7 60</span>. The seven results are added together.'],
     ['4', 'That sum is the <b>total out of 360</b>, mapped to a band and compared to the <b>200</b> listing line to produce the recommendation.']
