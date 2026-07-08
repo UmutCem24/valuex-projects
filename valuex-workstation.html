@@ -114,6 +114,23 @@ input, textarea, select { font-family: inherit; }
 .fld-row { display: grid; grid-template-columns: 180px 1fr; gap: 18px; margin-bottom: 14px; align-items: start; }
 .fld-row:last-child { margin-bottom: 0; }
 .fld-lab { padding-top: 9px; font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; font-weight: 500; }
+
+/* External updates / public signals */
+.pubsig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; }
+.pubsig-grid .fld-row { grid-template-columns: 160px 1fr; }
+.pubsig-grid textarea { font-family: var(--mono); font-size: 11.5px; resize: vertical; min-height: 44px; }
+.ps-summary { margin-top: 16px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ps-summary-head { padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 11.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.ps-finding { padding: 11px 14px; border-bottom: 1px solid var(--line-2); font-size: 12.5px; line-height: 1.55; display: flex; gap: 10px; align-items: flex-start; }
+.ps-finding:last-child { border-bottom: none; }
+.ps-tier { font-family: var(--mono); font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; margin-top: 1px; }
+.ps-tier.V { background: rgba(63,158,99,0.14); color: var(--green, #3f9e63); }
+.ps-tier.S { background: rgba(110,81,145,0.14); color: var(--purple); }
+.ps-tier.I { background: rgba(192,135,21,0.14); color: var(--amber, #c08715); }
+.ps-tier.C { background: rgba(217,104,95,0.14); color: var(--red, #d9685f); }
+.ps-crit-tag { font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; flex-shrink: 0; }
+.ps-empty, .ps-error { padding: 14px; font-size: 12px; color: var(--text-3); font-style: italic; }
+.ps-error { color: var(--amber, #c08715); font-style: normal; }
 .fld-lab .req { color: var(--purple); font-family: var(--mono); font-size: 11px; font-weight: 700; }
 .fld input, .fld textarea, .fld select { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 13px; font-size: 12px; color: var(--text); transition: border-color 0.12s, box-shadow 0.12s; }
 .fld input::placeholder, .fld textarea::placeholder { color: var(--text-4); }
@@ -1053,7 +1070,32 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
         </div>
 
         <div class="input-section">
-          <div class="input-section-head"><span class="step-no">05</span><h2>Internal notes</h2><span class="opt">optional · reviewer-only</span></div>
+          <div class="input-section-head"><span class="step-no">05</span><h2>External updates · public signals</h2><span class="opt">optional · strengthens re-evaluation</span></div>
+          <div class="input-section-body">
+            <p style="font-size:12.5px;line-height:1.6;color:var(--text-3);margin-bottom:14px;max-width:74ch;">
+              Paste public links below. VALUEX will check them for <b>concrete, dated updates</b> — a new funding round, a named
+              partner, a mainnet launch, a security audit, team expansion, real traction — that may not be in the Typeform or
+              deck, which matters most when re-evaluating an older project. Vague marketing language is ignored; only specific,
+              sourced updates can move a score.
+            </p>
+            <div class="pubsig-grid">
+              <div class="fld-row"><div class="fld-lab">Website</div><div class="fld"><textarea id="ps-website" rows="2" placeholder="https://project.com&#10;https://project.com/roadmap"></textarea></div></div>
+              <div class="fld-row"><div class="fld-lab">Press &amp; media</div><div class="fld"><textarea id="ps-press" rows="2" placeholder="One URL per line"></textarea></div></div>
+              <div class="fld-row"><div class="fld-lab">Social media</div><div class="fld"><textarea id="ps-social" rows="2" placeholder="LinkedIn, X/Twitter, Discord, Telegram…"></textarea></div></div>
+              <div class="fld-row"><div class="fld-lab">Technical sources</div><div class="fld"><textarea id="ps-technical" rows="2" placeholder="GitHub, docs, Medium / Substack…"></textarea></div></div>
+              <div class="fld-row"><div class="fld-lab">Funding / investor sources</div><div class="fld"><textarea id="ps-funding" rows="2" placeholder="Funding announcements, investor / backer pages…"></textarea></div></div>
+              <div class="fld-row"><div class="fld-lab">Other</div><div class="fld"><textarea id="ps-other" rows="2" placeholder="Conference pages, grants, anything else relevant"></textarea></div></div>
+            </div>
+            <div style="margin-top:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button class="btn" id="btn-scan-signals" type="button"><span>⤴</span> Scan public signals</button>
+              <span id="ps-scan-status" style="font-family:var(--mono); font-size:10.5px; color:var(--text-3);"></span>
+            </div>
+            <div id="ps-summary" class="ps-summary" style="display:none;"></div>
+          </div>
+        </div>
+
+        <div class="input-section">
+          <div class="input-section-head"><span class="step-no">06</span><h2>Internal notes</h2><span class="opt">optional · reviewer-only</span></div>
           <div class="input-section-body">
             <div class="fld-row"><div class="fld-lab">Notes</div><div class="fld"><textarea id="p-notes" placeholder="Context VALUEX can't infer from the materials — warm intro source, prior conversations, things to verify."></textarea></div></div>
           </div>
@@ -1364,6 +1406,11 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
               <div class="card-head"><h3>? Missing Evidence</h3><span class="meta" id="er-missing-meta"></span></div>
               <div class="card-body" id="er-missing"></div>
             </div>
+          </div>
+
+          <div class="card-ev">
+            <div class="card-head"><h3>🌐 Public Signal Impact <span class="help-ico" data-tip="Concrete, dated updates found on the pasted public links (website, press, social, technical, funding/investor sources) that influenced this scoring — separate from the deck and Typeform. Only specific, sourced updates can move a score; vague claims are ignored. This panel is internal-only and never appears on the public Selection or Below-Threshold pages.">?</span></h3><span class="meta" id="er-pubsig-meta"></span></div>
+            <div class="card-body" id="er-public-signals"></div>
           </div>
 
           <!-- Radar + founder-vs-claude overlay -->
@@ -1870,6 +1917,14 @@ function clearIntakeForm() {
   var qa = document.getElementById('qa-block'); if (qa) qa.innerHTML = '<div class="qa-empty"><div class="ic">⤓</div><div>No answers imported yet</div><div class="hint">Paste raw Typeform export, upload CSV/JSON, or connect the Typeform API</div></div>';
   var cnt = document.getElementById('qa-count'); if (cnt) cnt.textContent = '0';
   if (typeof clearProjectLogo === 'function') clearProjectLogo();
+  // Public signals: clear the pasted links AND the stashed scan result —
+  // otherwise a previous project's findings could silently attach to this
+  // new one if the reviewer skips re-scanning.
+  PUBLIC_SIGNAL_GROUPS.forEach(function(g){ var el = document.getElementById(g.id); if (el) el.value = ''; });
+  var psBox = document.getElementById('ps-summary'); if (psBox) { psBox.style.display = 'none'; psBox.innerHTML = ''; }
+  var psStatus = document.getElementById('ps-scan-status'); if (psStatus) psStatus.textContent = '';
+  window._lastPublicSignalFindings = [];
+  window._lastPublicSignalLinks = null;
 }
 
 document.querySelectorAll('.profile-toggle .opt').forEach(function(o){
@@ -2462,6 +2517,14 @@ var VALUEX_SYSTEM_PROMPT = [
   "I = Inferred (plausible from adjacent signals — team from LinkedIn, market from sector activity)",
   "C = Founder Claim (asserted only, no supporting artifact)",
   "",
+  "EXTERNAL PUBLIC SIGNALS (optional, supplementary — never a replacement for the deck/Typeform):",
+  "The project record may include pasted public links grouped as website / press & media / social media / technical sources / funding & investor sources / other, and/or a reviewer-run preview scan of them.",
+  "If a web_search tool is available to you, use it on these links to find CONCRETE, DATED, SPECIFIC updates not already reflected in the deck or Typeform — this matters most for older projects being re-evaluated, which may have moved on since their original submission. Look specifically for: new funding round, new investor/backer, new partnership, product/MVP/beta/mainnet launch, security audit, legal/regulatory update, team expansion, new advisor, traction/customer-growth milestone, GitHub or technical progress, media coverage, ecosystem grant, conference participation, community growth.",
+  "STRICT RULE: a public signal may adjust a criterion's score ONLY if it is dated (or unambiguously recent) AND specific (names, numbers, or a named source) AND checkable at the URL given. Vague marketing language ('growing fast', 'strong community', 'exciting partnership', 'huge milestone') must be ignored outright — it must not move any score in either direction.",
+  "Tier every public signal you actually use with the same V/S/I/C scale: V only if independently verifiable at a named authoritative source (press outlet, on-chain explorer, official audit registry, government/regulatory record); S if the linked page itself directly documents the specific claim; I if reasonably inferred from an indirect signal (e.g. commit-activity pattern on GitHub); a public signal alone must never justify C — Claim-only stays reserved for unverified founder assertions.",
+  "If you use a public signal to influence a criterion, say so briefly in that criterion's own 'note' (cite the source type, e.g. 'confirmed via press release'), and also list it in 'publicSignalImpact' for audit purposes.",
+  "If web_search is unavailable in this environment, or a link cannot be reached, evaluate from the deck/Typeform/files only and leave 'publicSignalImpact' empty — never guess at what an unreachable page might say.",
+  "",
   "Return ONLY a single JSON object, no prose, no markdown fence. Be compact. Match this exact shape:",
   '{"name":"string","sector":"string","stage":"string","token":bool,"profile":"TECHX"|"WEB3X","summary":"2-3 sentence neutral summary",',
   '"scores":[{"id":1-17,"score":1-6|null,"conf":"L"|"M"|"H","evi":"V"|"S"|"I"|"C","note":"<=16 word rationale justifying the exact 1-6 value against the rubric"}, ...17 entries],',
@@ -2470,6 +2533,7 @@ var VALUEX_SYSTEM_PROMPT = [
   '"strengths":["<=18 word strength" * up to 4],"weaknesses":["<=18 word weakness" * up to 4],',
   '"contradictions":[{"sev":"H"|"M"|"L","desc":"<=20 words","src":"source A <-> source B"} * up to 3],',
   '"missing":[{"sev":"H"|"M"|"L","crit":num,"desc":"<=18 words"} * up to 3],',
+  '"publicSignalImpact":[{"criterion":1-17,"finding":"<=20 word dated, specific update","evidenceTier":"V"|"S"|"I"|"C","sourceUrl":"string","effect":"raised"|"lowered"|"confirmed_existing"} * up to 8, or [] if no public links were provided or none checked out],',
   '"next_step":"single sentence operational next step"}'
 ].join("\n");
 
@@ -2604,6 +2668,130 @@ function extractJSON(text) {
   return JSON.parse(text.substring(s, e + 1));
 }
 
+// =============================================================
+// EXTERNAL UPDATES / PUBLIC SIGNALS
+// Lets a reviewer paste public links (website, press, social, technical,
+// funding/investor, other) so VALUEX can look for concrete, dated updates
+// that the original Typeform/deck wouldn't have — most useful when
+// re-evaluating an older Selection project that may have moved on since
+// its first submission. This never replaces the deck/Typeform; it's
+// supplementary evidence, and it's internal-only (never shown on the
+// public Selection / Below-Threshold pages).
+// =============================================================
+var PUBLIC_SIGNAL_GROUPS = [
+  { key: 'website',   id: 'ps-website',   label: 'Website' },
+  { key: 'press',     id: 'ps-press',     label: 'Press & media' },
+  { key: 'social',    id: 'ps-social',    label: 'Social media' },
+  { key: 'technical', id: 'ps-technical', label: 'Technical sources' },
+  { key: 'funding',   id: 'ps-funding',   label: 'Funding / investor sources' },
+  { key: 'other',     id: 'ps-other',     label: 'Other' }
+];
+
+function collectPublicSignalLinks() {
+  var out = {};
+  var any = false;
+  PUBLIC_SIGNAL_GROUPS.forEach(function(g){
+    var el = document.getElementById(g.id);
+    var raw = el ? (el.value || '') : '';
+    var lines = raw.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+    out[g.key] = lines;
+    if (lines.length) any = true;
+  });
+  out.__any = any;
+  return out;
+}
+
+var PUBLIC_SIGNAL_SCAN_PROMPT = [
+  "You are a careful research assistant checking public links for a venture-rating analyst.",
+  "Given a list of URLs grouped by type (website, press & media, social media, technical sources, funding/investor sources, other), use web search to check each one.",
+  "Extract ONLY concrete, dated, specific updates — funding round, new investor/backer, new partnership, product/MVP/beta/mainnet launch, security audit, legal/regulatory update, team expansion, new advisor, traction/customer milestone, GitHub/technical progress, media coverage, ecosystem grant, conference participation, community growth.",
+  "Ignore vague marketing language entirely ('growing fast', 'exciting news', 'strong momentum') — if a page has nothing concrete, skip it, do not invent a finding to fill space.",
+  "For each real finding, assign an evidence tier: V (independently verifiable at a named authoritative source), S (the linked page itself directly documents it), I (reasonably inferred from an indirect signal), C (asserted on the page with nothing to back it — rare to include at all, since this whole scan is about public sources, not founder claims).",
+  "Map each finding to the single VALUEX criterion it's most relevant to, by number:",
+  "1 Concrete market opportunity, 2 Solves valuable market problem, 3 Differentiation of solution, 4 Technological innovation,",
+  "5 Customer acquisition success, 6 Co-operations & partnerships, 7 Revenue model clarity, 8 Funding sufficiency,",
+  "11 Team capabilities, 12 Execution & roadmap delivery, 13 Documentation & approachability,",
+  "14 Community management activity, 15 Community engagement, 16 Security & audits & technical foundation, 17 Regulatory safety & exposure.",
+  "If web_search is not available to you in this environment, say so plainly instead of guessing.",
+  "Return ONLY a JSON object, no prose, no markdown fence: {\"findings\":[{\"criterion\":1-17,\"finding\":\"<=20 words, dated & specific\",\"evidenceTier\":\"V\"|\"S\"|\"I\"|\"C\",\"sourceUrl\":\"string\",\"sourceGroup\":\"string\"} ...], \"unreachable\": true|false}"
+].join("\n");
+
+function renderPublicSignalSummary(findings, note) {
+  var box = document.getElementById('ps-summary');
+  if (!box) return;
+  box.style.display = 'block';
+  var head = '<div class="ps-summary-head"><span>Public signal findings' + (findings && findings.length ? ' · ' + findings.length : '') + '</span></div>';
+  if (note) {
+    box.innerHTML = head + '<div class="ps-error">' + escapeHTML(note) + '</div>';
+    return;
+  }
+  if (!findings || !findings.length) {
+    box.innerHTML = head + '<div class="ps-empty">No concrete, dated updates found on the links provided. Vague or promotional content is not surfaced here.</div>';
+    return;
+  }
+  var rows = findings.map(function(f){
+    var tier = (f.evidenceTier || 'C').toUpperCase();
+    var critName = CRITERIA_NAMES[(f.criterion || 1) - 1] || ('Criterion ' + f.criterion);
+    var src = f.sourceUrl ? '<a href="' + escapeAttr(f.sourceUrl) + '" target="_blank" rel="noopener" style="color:inherit;">' + escapeHTML(f.sourceGroup || 'source') + ' ↗</a>' : escapeHTML(f.sourceGroup || '');
+    return '<div class="ps-finding"><span class="ps-tier ' + tier + '">' + tier + '</span>'
+      + '<span style="flex:1;">' + escapeHTML(f.finding || '') + '<br><span style="color:var(--text-3);font-size:11px;">' + src + '</span></span>'
+      + '<span class="ps-crit-tag">→ C' + f.criterion + ' · ' + escapeHTML(critName) + '</span></div>';
+  }).join('');
+  box.innerHTML = head + rows;
+}
+
+async function scanPublicSignals() {
+  var links = collectPublicSignalLinks();
+  if (!links.__any) {
+    toast('Paste at least one link before scanning', '!');
+    return;
+  }
+  var btn = document.getElementById('btn-scan-signals');
+  var status = document.getElementById('ps-scan-status');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Scanning…';
+
+  var groupLines = PUBLIC_SIGNAL_GROUPS.map(function(g){
+    var arr = links[g.key] || [];
+    return g.label + ':' + (arr.length ? '\n  ' + arr.join('\n  ') : ' (none)');
+  }).join('\n\n');
+
+  try {
+    var resp = await fetch(EVAL_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1200,
+        temperature: 0,
+        system: PUBLIC_SIGNAL_SCAN_PROMPT,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: 'Public links to check:\n\n' + groupLines }]
+      })
+    });
+    if (!resp.ok) throw new Error('API ' + resp.status);
+    var data = await resp.json();
+    var textOut = (data.content || []).map(function(c){ return c.text || ''; }).join('\n');
+    var parsed = extractJSON(textOut);
+    window._lastPublicSignalFindings = parsed.findings || [];
+    window._lastPublicSignalLinks = links;
+    if (parsed.unreachable) {
+      renderPublicSignalSummary([], 'The links were noted but could not be reached from this environment. They will still be passed to the evaluation as context.');
+    } else {
+      renderPublicSignalSummary(window._lastPublicSignalFindings, null);
+    }
+    if (status) status.textContent = 'Scanned ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    console.warn('Public signal scan unavailable:', err);
+    window._lastPublicSignalFindings = [];
+    window._lastPublicSignalLinks = links;
+    renderPublicSignalSummary([], 'Live scanning needs the same backend/API access as the main evaluation, which isn\'t reachable from this view. The links below are saved and will be passed to the evaluation call as context, but won\'t be pre-extracted here — see the note in the code for what a backend proxy would enable.');
+    if (status) status.textContent = 'Scan unavailable — links saved';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // Configure this if you have your own backend proxy. Leave as the direct API for in-claude.ai use.
 var EVAL_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 
@@ -2655,6 +2843,26 @@ async function runVALUEXEvaluation() {
     });
 
     var typeformText = getTypeformText();
+    var psLinks = collectPublicSignalLinks();
+    var psFindings = window._lastPublicSignalFindings || [];
+    var psBlock = null;
+    if (psLinks.__any) {
+      var psGroupLines = PUBLIC_SIGNAL_GROUPS.map(function(g){
+        var arr = psLinks[g.key] || [];
+        return arr.length ? g.label + ': ' + arr.join(', ') : null;
+      }).filter(Boolean).join('\n');
+      var psFindingLines = psFindings.length
+        ? psFindings.map(function(f){ return '- [' + (f.evidenceTier||'?') + '] C' + f.criterion + ': ' + f.finding + ' (' + (f.sourceUrl||f.sourceGroup||'source') + ')'; }).join('\n')
+        : '(not pre-scanned by the reviewer — check these yourself if web_search is available)';
+      psBlock = [
+        'External public signals (reviewer-provided links, supplementary only):',
+        psGroupLines,
+        '',
+        'Reviewer preview scan findings, if run:',
+        psFindingLines
+      ].join('\n');
+    }
+
     var userMessage = [
       'Project record for evaluation:',
       '- Project name: ' + pName,
@@ -2668,11 +2876,13 @@ async function runVALUEXEvaluation() {
       'Typeform answers from the founder:',
       typeformText || '(no Typeform answers — evaluate from the uploaded materials only)',
       '',
+      psBlock,
+      psBlock ? '' : null,
       'Internal reviewer notes:',
       pNotes || '(none)',
       '',
       'Score this project against the 17 VALUEX criteria using the rules and weighting profile above. Return ONLY the JSON object — no preamble, no markdown fence, no closing prose.'
-    ].filter(Boolean).join('\n');
+    ].filter(function(l){ return l !== null; }).join('\n');
     content.push({ type: 'text', text: userMessage });
 
     setLoadingStep(2);
@@ -2685,6 +2895,7 @@ async function runVALUEXEvaluation() {
         max_tokens: 1000,
         temperature: 0,
         system: VALUEX_SYSTEM_PROMPT,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: content }]
       })
     });
@@ -2927,6 +3138,12 @@ function generateMockEvaluation(meta) {
     total: total, band: band, recommendation: recommendation,
     strengths: strengths, weaknesses: weaknesses,
     contradictions: contradictions, missing: missing,
+    // Demo mode never fabricates public-signal findings — unlike the rest of
+    // this mock (which simulates a whole fictional evaluation clearly labelled
+    // as such), inventing e.g. a fake "verified funding round" against a real
+    // pasted URL would be actively misleading. Real findings only ever come
+    // from the live API path in runVALUEXEvaluation().
+    publicSignalImpact: [],
     competitors: buildCompetitors(meta, dimensions), includeCompetitors: true,
     next_step: nextStepMap[recommendation] || '—'
   };
@@ -3172,6 +3389,28 @@ function renderEvaluation(d) {
   });
   if (!(d.missing || []).length) msDiv.innerHTML = '<div style="color:var(--text-3);font-size:12px;font-style:italic;">No missing evidence flagged</div>';
   document.getElementById('er-missing-meta').textContent = ((d.missing || []).length) + ' items';
+
+  // public signal impact — external updates found on pasted links, internal-only
+  var psImpactDiv = document.getElementById('er-public-signals');
+  if (psImpactDiv) {
+    psImpactDiv.innerHTML = '';
+    var impacts = d.publicSignalImpact || [];
+    var effectIcon = { raised: '▲', lowered: '▼', confirmed_existing: '●' };
+    impacts.forEach(function(f){
+      var tier = (f.evidenceTier || 'C').toUpperCase();
+      var critLabel = f.criterion ? ('C' + f.criterion + ' · ' + (CRITERIA_NAMES[f.criterion-1] || '')) : '';
+      var it = document.createElement('div');
+      it.className = 'ps-finding';
+      it.innerHTML =
+        '<span class="ps-tier ' + tier + '">' + tier + '</span>'
+        + '<span style="flex:1;">' + escapeHTML(f.finding || '') + (f.sourceUrl ? ' <a href="' + escapeAttr(f.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--text-3);font-size:11px;">↗</a>' : '') + '</span>'
+        + '<span class="ps-crit-tag">' + (effectIcon[f.effect] || '') + ' ' + escapeHTML(critLabel) + '</span>';
+      psImpactDiv.appendChild(it);
+    });
+    if (!impacts.length) psImpactDiv.innerHTML = '<div class="ps-empty">No public-link updates were used in this scoring — either no links were provided, or nothing on them was concrete and dated enough to move a score.</div>';
+    var psMeta = document.getElementById('er-pubsig-meta');
+    if (psMeta) psMeta.textContent = impacts.length + ' applied';
+  }
 
   // next step
   document.getElementById('er-nextstep').textContent = d.next_step || '—';
@@ -4170,6 +4409,11 @@ renderEvaluation = function(d) {
   window._lastEvalData = d;
   // Also stash founder scores on the eval data
   if (window._lastFounderScores) d.founderScores = window._lastFounderScores;
+  // Stash the raw public-signal links too (the reviewer's pasted input, not
+  // an AI output) so they're saved alongside the project and don't need to
+  // be re-pasted on every re-rank. publicSignalImpact itself already comes
+  // straight from the API response (or [] in demo mode) and needs no stashing.
+  if (window._lastPublicSignalLinks && window._lastPublicSignalLinks.__any) d.publicSignalLinks = window._lastPublicSignalLinks;
   __origRenderEval(d);
 };
 
@@ -4177,6 +4421,8 @@ renderEvaluation = function(d) {
 if (typeof viewCrumbs !== 'undefined') viewCrumbs.report = ['Report'];
 
 document.getElementById('run-eval-btn').addEventListener('click', runVALUEXEvaluation);
+var __btnScanSignals = document.getElementById('btn-scan-signals');
+if (__btnScanSignals) __btnScanSignals.addEventListener('click', scanPublicSignals);
 
 // How-did-this-ranking-happen card: expand / collapse
 document.addEventListener('click', function(e){
