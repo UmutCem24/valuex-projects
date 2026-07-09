@@ -1627,15 +1627,15 @@ red_flags      ← detect_red_flags(all_inputs)
           <p class="sub">The 17 criteria roll up into 7 dimensions. Each dimension carries a weight. There are two weighting profiles — exactly as in your current sheet — chosen at intake depending on whether the project has a token.</p>
           <div class="dim-table">
             <div class="h"><div>Dimension</div><div>Criteria</div><div class="num">TECHX</div><div class="num">WEB3X</div></div>
-            <div class="r"><div class="dn">Market &amp; purpose</div><div class="crits">1 · 2 · 3</div><div class="num techx">0.30</div><div class="num web3x">0.20</div></div>
+            <div class="r"><div class="dn">Market &amp; purpose</div><div class="crits">1 · 2 · 3</div><div class="num techx">0.24</div><div class="num web3x">0.20</div></div>
             <div class="r"><div class="dn">Technology</div><div class="crits">4</div><div class="num techx">0.20</div><div class="num web3x">0.20</div></div>
-            <div class="r"><div class="dn">Sales &amp; Funding</div><div class="crits">5 · 6 · 7</div><div class="num techx">0.13</div><div class="num web3x">0.10</div></div>
+            <div class="r"><div class="dn">Sales &amp; Funding</div><div class="crits">5 · 6 · 7</div><div class="num techx">0.22</div><div class="num web3x">0.10</div></div>
             <div class="r"><div class="dn">Economics</div><div class="crits">8 · 9 · 10</div><div class="num techx">0.07</div><div class="num web3x">0.20</div></div>
-            <div class="r"><div class="dn">Skill, staffing &amp; execution</div><div class="crits">11 · 12 · 13</div><div class="num techx">0.20</div><div class="num web3x">0.15</div></div>
+            <div class="r"><div class="dn">Skill, staffing &amp; execution</div><div class="crits">11 · 12 · 13</div><div class="num techx">0.17</div><div class="num web3x">0.15</div></div>
             <div class="r"><div class="dn">Engagement</div><div class="crits">14 · 15</div><div class="num techx">0.05</div><div class="num web3x">0.10</div></div>
             <div class="r"><div class="dn">Security</div><div class="crits">16 · 17</div><div class="num techx">0.05</div><div class="num web3x">0.05</div></div>
           </div>
-          <div class="callout-row"><span class="tag">Why two profiles</span> &nbsp; <b>TECHX</b> (no token) leans on market and team. <b>WEB3X</b> (token) shifts weight into Economics (tokenomics) and Engagement (community). On a TECHX project, criteria 9 &amp; 10 are skipped and Economics rests on funding alone.</div>
+          <div class="callout-row"><span class="tag">Why two profiles</span> &nbsp; <b>TECHX</b> (no token) leans on market, commercial traction and team. <b>WEB3X</b> (token) shifts weight into Economics (tokenomics) and Engagement (community). On a TECHX project, criteria 9 &amp; 10 are skipped and Economics rests on funding alone.</div>
         </div>
 
         <div class="method-block" id="m6">
@@ -2500,7 +2500,7 @@ var VALUEX_SYSTEM_PROMPT = [
   "Engagement: 14 Community management activity / 15 Community engagement",
   "Security: 16 Security/audits/technical foundation / 17 Regulatory safety & exposure",
   "",
-  "WEIGHTS TECHX (no token): Market .30 Tech .20 Sales .13 Econ .07 Skill .20 Engagement .05 Security .05",
+  "WEIGHTS TECHX (no token): Market .24 Tech .20 Sales .22 Econ .07 Skill .17 Engagement .05 Security .05",
   "WEIGHTS WEB3X (token):    Market .20 Tech .20 Sales .10 Econ .20 Skill .15 Engagement .10 Security .05",
   "",
   "SCORING 1-6, absolute (not relative to other projects):",
@@ -2560,11 +2560,11 @@ var EXPLAIN = {
     L: 'LOW confidence.\n\nLimited information or weak signals supporting this score. The score could shift materially as more evidence arrives. Flagged as a candidate for evidence upgrade.'
   },
   weights: {
-    Market: 'MARKET & PURPOSE dimension (criteria 1, 2, 3 — market opportunity, problem fit, differentiation).\n\nTECHX weight: 0.30 (highest)\nWEB3X weight: 0.20\n\nMarket carries the heaviest weight in TECHX profile because non-token projects live or die by market fit.',
+    Market: 'MARKET & PURPOSE dimension (criteria 1, 2, 3 — market opportunity, problem fit, differentiation).\n\nTECHX weight: 0.24 (highest, narrowly)\nWEB3X weight: 0.20\n\nStill the single heaviest weight in TECHX, but Sales & Funding (0.22) now sits close behind it — market opportunity and demonstrated commercial traction are treated as close to equally decisive.',
     Tech: 'TECHNOLOGY dimension (criterion 4 — technological innovation).\n\nTECHX weight: 0.20\nWEB3X weight: 0.20\n\nSame weight in both profiles. A single criterion that captures whether the core technology is genuinely differentiated.',
-    Sales: 'SALES & FUNDING dimension (criteria 5, 6, 7 — customer acquisition, partnerships, revenue model).\n\nTECHX weight: 0.13\nWEB3X weight: 0.10\n\nSlightly heavier in TECHX where commercial traction matters more directly than for token projects.',
-    Econ: 'ECONOMICS dimension (criteria 8, 9, 10 — funding, token utility, tokenomics depth).\n\nTECHX weight: 0.07 (criteria 9 & 10 skipped)\nWEB3X weight: 0.20 (all three criteria scored)\n\nMassive shift between profiles. WEB3X projects must defend their tokenomics; TECHX projects only need funding sufficiency.',
-    Skill: 'SKILL & EXECUTION dimension (criteria 11, 12, 13 — team, execution, documentation).\n\nTECHX weight: 0.20\nWEB3X weight: 0.15\n\nHeavier in TECHX where team carries more of the success. WEB3X projects can lean on community in addition to team.',
+    Sales: 'SALES & FUNDING dimension (criteria 5, 6, 7 — customer acquisition, partnerships, revenue model).\n\nTECHX weight: 0.22\nWEB3X weight: 0.10\n\nRaised from 0.13 in TECHX to reflect how heavily investor decisions now weigh demonstrated revenue and commercial traction, not just market thesis.',
+    Econ: 'ECONOMICS dimension (criteria 8, 9, 10 — funding, token utility, tokenomics depth).\n\nTECHX weight: 0.07 (criteria 9 & 10 skipped)\nWEB3X weight: 0.20 (all three criteria scored)\n\nMassive shift between profiles. WEB3X projects must defend their tokenomics; TECHX projects only need funding sufficiency — kept deliberately low, since capital already raised is a weaker signal than proven traction.',
+    Skill: 'SKILL & EXECUTION dimension (criteria 11, 12, 13 — team, execution, documentation).\n\nTECHX weight: 0.17\nWEB3X weight: 0.15\n\nTrimmed from 0.20 to help fund the Sales & Funding increase, while still sitting close to WEB3X\'s weighting.',
     Engagement: 'ENGAGEMENT dimension (criteria 14, 15 — community management, community engagement).\n\nTECHX weight: 0.05\nWEB3X weight: 0.10\n\nDoubled in WEB3X because community can make or break a token project. For TECHX, it\'s a smaller signal.',
     Security: 'SECURITY & REGULATORY dimension (criteria 16, 17 — audits/technical foundation, regulatory safety).\n\nTECHX weight: 0.05\nWEB3X weight: 0.05\n\nSame in both profiles. A relatively low weight but important — security failures can sink a project regardless of how good the other dimensions look.'
   },
@@ -2676,7 +2676,7 @@ function extractJSON(text) {
 // already-working code as possible while fixing this specific crash.
 var VALUEX_DIM_ORDER = ['Market','Tech','Sales','Econ','Skill','Engagement','Security'];
 var VALUEX_DIM_WEIGHTS = {
-  TECHX: { Market: 0.30, Tech: 0.20, Sales: 0.13, Econ: 0.07, Skill: 0.20, Engagement: 0.05, Security: 0.05 },
+  TECHX: { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 },
   WEB3X: { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 }
 };
 var VALUEX_CRIT_TO_DIM = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
@@ -3332,7 +3332,7 @@ function generateMockEvaluation(meta) {
   var CONF_BY_EVI = { V: ['H','H','M'], S: ['H','M','M'], I: ['M','M','L'], C: ['L','M','L'] };
 
   var weightsByProfile = isTechx
-    ? { Market: 0.30, Tech: 0.20, Sales: 0.13, Econ: 0.07, Skill: 0.20, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
 
@@ -3508,7 +3508,7 @@ function renderEvaluation(d) {
   if (d.sector) chipsHTML += '<span class="chip">Sector <b>' + escapeHTML(d.sector) + '</b></span>';
   if (d.stage) chipsHTML += '<span class="chip">Stage <b>' + escapeHTML(d.stage) + '</b></span>';
   chipsHTML += '<span class="chip" data-tip="' + escapeAttr('TOKEN flag determines the scoring profile.\n\nYes → WEB3X profile (criteria 9 & 10 scored, heavier weight on Economics and Engagement)\nNo → TECHX profile (criteria 9 & 10 skipped, heavier weight on Market and Skill)') + '">Token <b>' + (d.token ? 'Yes' : 'No') + '</b></span>';
-  chipsHTML += '<span class="chip profile" data-tip="' + escapeAttr('SCORING PROFILE used for this evaluation.\n\nTECHX (no token): Market 0.30 / Tech 0.20 / Sales 0.13 / Econ 0.07 / Skill 0.20 / Engagement 0.05 / Security 0.05\n\nWEB3X (token): Market 0.20 / Tech 0.20 / Sales 0.10 / Econ 0.20 / Skill 0.15 / Engagement 0.10 / Security 0.05\n\nWeights sum to 1.0 in both profiles.') + '">Profile <b>' + escapeHTML(d.profile || 'TECHX') + '</b></span>';
+  chipsHTML += '<span class="chip profile" data-tip="' + escapeAttr('SCORING PROFILE used for this evaluation.\n\nTECHX (no token): Market 0.24 / Tech 0.20 / Sales 0.22 / Econ 0.07 / Skill 0.17 / Engagement 0.05 / Security 0.05\n\nWEB3X (token): Market 0.20 / Tech 0.20 / Sales 0.10 / Econ 0.20 / Skill 0.15 / Engagement 0.10 / Security 0.05\n\nWeights sum to 1.0 in both profiles.') + '">Profile <b>' + escapeHTML(d.profile || 'TECHX') + '</b></span>';
   chipsHTML += '<span class="chip">Run <b>' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + '</b></span>';
   document.getElementById('er-chips').innerHTML = chipsHTML;
 
@@ -4062,7 +4062,7 @@ function renderRiskMatrix(d) {
   // Weight map
   var isTechx = (d.profile || 'TECHX') === 'TECHX';
   var weightsByDim = isTechx
-    ? { Market: 0.30, Tech: 0.20, Sales: 0.13, Econ: 0.07, Skill: 0.20, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
   var maxImpact = 0;
@@ -4174,7 +4174,7 @@ function renderActionPlan(d) {
 
   var isTechx = (d.profile || 'TECHX') === 'TECHX';
   var weightsByDim = isTechx
-    ? { Market: 0.30, Tech: 0.20, Sales: 0.13, Econ: 0.07, Skill: 0.20, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
 
@@ -4540,7 +4540,7 @@ function computeReportActions(p) {
   var scores = (p.scores || []).filter(function(s){ return s.score != null; });
   var isTechx = (p.profile || 'TECHX') === 'TECHX';
   var weightsByDim = isTechx
-    ? { Market: 0.30, Tech: 0.20, Sales: 0.13, Econ: 0.07, Skill: 0.20, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
   var ACTION_TEMPLATES = {
