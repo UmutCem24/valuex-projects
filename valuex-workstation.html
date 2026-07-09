@@ -2658,6 +2658,107 @@ function extractJSON(text) {
 }
 
 // =============================================================
+// RESULT NORMALIZATION — defensive repair of Claude's parsed JSON
+//
+// Why this exists: the JSON schema in VALUEX_SYSTEM_PROMPT asks Claude for
+// {name, sum, weight, contrib} per dimension — it never asks for 'avg', yet
+// several render functions read dim.avg directly (it's a display
+// convenience computed elsewhere, e.g. the demo generator always fills it
+// in). That mismatch is what crashed rendering with "Cannot read properties
+// of undefined (reading 'toFixed')": a live Claude response has no bug in
+// it, the UI's assumption about the shape was just wrong. This function is
+// the single point where that gets fixed, for every numeric field a render
+// function might touch, before rendering ever starts.
+//
+// Same fixed weights and criterion→dimension map used throughout the rest
+// of the file (renderRiskMatrix, renderFounderCompare, etc.) — duplicated
+// here on purpose rather than refactored, to touch as little existing,
+// already-working code as possible while fixing this specific crash.
+var VALUEX_DIM_ORDER = ['Market','Tech','Sales','Econ','Skill','Engagement','Security'];
+var VALUEX_DIM_WEIGHTS = {
+  TECHX: { Market: 0.30, Tech: 0.20, Sales: 0.13, Econ: 0.07, Skill: 0.20, Engagement: 0.05, Security: 0.05 },
+  WEB3X: { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 }
+};
+var VALUEX_CRIT_TO_DIM = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
+
+function isFiniteNum(v) { return typeof v === 'number' && isFinite(v); }
+
+// Rebuilds all 7 dimensions from the 17 scored criteria + the fixed
+// per-profile weights — the exact same avg × weight × 60 formula used
+// everywhere else in the app. Used as the fallback source for any
+// individual field (avg/contrib/weight/sum) Claude's own dimensions array
+// is missing or returned as a non-number.
+function recomputeDimensionsFromScores(scores, profile) {
+  var weights = VALUEX_DIM_WEIGHTS[profile] || VALUEX_DIM_WEIGHTS.TECHX;
+  var sums = {}, counts = {};
+  VALUEX_DIM_ORDER.forEach(function(dn){ sums[dn] = 0; counts[dn] = 0; });
+  (scores || []).forEach(function(s){
+    if (!s || s.score === null || s.score === undefined) return;
+    var dn = VALUEX_CRIT_TO_DIM[s.id];
+    if (!dn) return;
+    var sc = Number(s.score);
+    if (!isFinite(sc)) return;
+    sums[dn] += sc;
+    counts[dn] += 1;
+  });
+  var out = {};
+  VALUEX_DIM_ORDER.forEach(function(dn){
+    var w = weights[dn];
+    var avg = counts[dn] > 0 ? sums[dn] / counts[dn] : 0;
+    var contrib = avg * w * 60;
+    out[dn] = { name: dn, sum: sums[dn], weight: w, avg: Math.round(avg * 100) / 100, contrib: Math.round(contrib * 10) / 10 };
+  });
+  return out;
+}
+
+// Validates the parsed VALUEX result and repairs anything numerically
+// missing/broken — dimensions, per-dimension avg/contrib/weight/sum, and
+// the overall total — recalculating from scores + the fixed weights
+// wherever Claude's own value is absent or not a real number. Throws only
+// when the scores themselves are too incomplete to recover from (a
+// genuinely unusable response), which the caller treats as a clear,
+// non-demo failure rather than attempting to render broken data.
+function normalizeEvalResult(d) {
+  d = d || {};
+
+  if (!Array.isArray(d.scores) || d.scores.length !== 17) {
+    throw new Error('Expected 17 scored criteria, got ' + (Array.isArray(d.scores) ? d.scores.length : 0));
+  }
+
+  var profile = (d.profile === 'WEB3X') ? 'WEB3X' : 'TECHX';
+  var weights = VALUEX_DIM_WEIGHTS[profile];
+  var recomputed = recomputeDimensionsFromScores(d.scores, profile);
+
+  var byName = {};
+  (Array.isArray(d.dimensions) ? d.dimensions : []).forEach(function(dim){
+    if (dim && dim.name) byName[dim.name] = dim;
+  });
+
+  d.dimensions = VALUEX_DIM_ORDER.map(function(dn){
+    var claude = byName[dn] || {};
+    var fallback = recomputed[dn];
+    var weight = isFiniteNum(claude.weight) ? claude.weight : weights[dn];
+    var contrib = isFiniteNum(claude.contrib) ? claude.contrib : fallback.contrib;
+    var avg = isFiniteNum(claude.avg) ? claude.avg : (weight > 0 ? contrib / (weight * 60) : fallback.avg);
+    var sum = isFiniteNum(claude.sum) ? claude.sum : fallback.sum;
+    return { name: dn, sum: sum, weight: weight, avg: Math.round(avg * 100) / 100, contrib: Math.round(contrib * 10) / 10 };
+  });
+
+  if (!isFiniteNum(d.total)) {
+    d.total = Math.round(d.dimensions.reduce(function(a, dm){ return a + dm.contrib; }, 0) * 10) / 10;
+  }
+
+  return d;
+}
+
+// Last-resort formatting guard for the handful of call sites that still
+// read a Claude-influenced number directly rather than through the
+// normalized dimensions above (e.g. inline data-tip strings). Mirrors the
+// "Number(value || 0).toFixed(...)" pattern requested for this fix.
+function safeFixed(val, digits) {
+  var n = Number(val);
+  return (isFinite(n) ? n : 0).toFixed(digits);
+}
 // EXTERNAL UPDATES / PUBLIC SIGNALS
 // Lets a reviewer paste public links (website, press, social, technical,
 // funding/investor, other) so VALUEX can look for concrete, dated updates
@@ -3084,6 +3185,19 @@ async function runVALUEXEvaluation() {
       toast('VALUEX evaluation completed but Claude did not return a valid JSON result — try again (not treated as a demo).', '!');
       return;
     }
+
+    // Repairs missing/non-numeric dimension fields (avg in particular —
+    // Claude is never asked to return it) and the overall total, recomputed
+    // from the 17 scores + fixed VALUEX weights wherever needed. Throws
+    // only if scores itself is too incomplete to trust.
+    try {
+      evalData = normalizeEvalResult(evalData);
+    } catch (normErr) {
+      console.error('VALUEX result failed validation:', normErr, evalData);
+      hideLoading();
+      toast('VALUEX evaluation completed but returned an incomplete result (' + ((normErr && normErr.message) || 'missing data') + ') — try again (not treated as a demo).', '!');
+      return;
+    }
   } catch (err) {
     // ---- Fallback: demo mode ----
     console.warn('Live API unreachable, falling back to demo mode:', err);
@@ -3112,13 +3226,26 @@ async function runVALUEXEvaluation() {
   evalData.competitors = (evalData.competitors && evalData.competitors.length) ? evalData.competitors : buildCompetitors(meta, evalData.dimensions || []);
   evalData.includeCompetitors = (evalData.includeCompetitors !== false);
 
-  renderEvaluation(evalData);
-  toggleDemoBanner(isDemo, demoReason);
-  hideLoading();
-  enableTopBarButtons();
-  renderReport(evalData);
-  switchView('report');
-  toast((isDemo ? 'Demo evaluation · ' : 'Evaluation complete · ') + (evalData.total || '?') + '/360', '✓');
+  // Rendering gets its own try/catch, independent of the API-call try/catch
+  // above: a render-time exception here means the evaluation itself
+  // succeeded (real or demo) and must never be reinterpreted as "API
+  // failed, show demo data" — that would show fabricated numbers for a
+  // problem that has nothing to do with reachability. It also guarantees
+  // hideLoading() always runs, so a render bug can no longer leave the
+  // loading overlay stuck (as it did before this fix).
+  try {
+    renderEvaluation(evalData);
+    toggleDemoBanner(isDemo, demoReason);
+    hideLoading();
+    enableTopBarButtons();
+    renderReport(evalData);
+    switchView('report');
+    toast((isDemo ? 'Demo evaluation · ' : 'Evaluation complete · ') + (evalData.total || '?') + '/360', '✓');
+  } catch (renderErr) {
+    console.error('Rendering the VALUEX evaluation failed:', renderErr, evalData);
+    hideLoading();
+    toast('VALUEX evaluation completed but the workstation could not render it (' + ((renderErr && renderErr.message) || 'unknown rendering error') + '). Check the console for details — this was not treated as a demo.', '!');
+  }
 }
 
 function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
@@ -3453,7 +3580,7 @@ function renderEvaluation(d) {
       '<div></div>'
       + '<div data-tip="' + dimTip + '">' + dimName + (dimInfo ? '  ·  weight ×' + dimInfo.weight : '') + '</div>'
       + '<div></div><div></div><div></div>'
-      + '<div style="text-align:right;" data-tip="' + escapeAttr('This dimension contributes ' + (dimInfo ? dimInfo.contrib.toFixed(1) : '?') + ' points to the total of 360.\n\nFormula: average score (' + (dimInfo ? dimInfo.avg.toFixed(2) : '?') + ') × weight (' + (dimInfo ? dimInfo.weight : '?') + ') × 60.') + '">' + (dimInfo ? '+' + Math.round(dimInfo.contrib * 10) / 10 : '—') + '</div>';
+      + '<div style="text-align:right;" data-tip="' + escapeAttr('This dimension contributes ' + (dimInfo ? safeFixed(dimInfo.contrib, 1) : '?') + ' points to the total of 360.\n\nFormula: average score (' + (dimInfo ? safeFixed(dimInfo.avg, 2) : '?') + ') × weight (' + (dimInfo ? dimInfo.weight : '?') + ') × 60.') + '">' + (dimInfo ? '+' + Math.round(Number(dimInfo.contrib || 0) * 10) / 10 : '—') + '</div>';
     st.appendChild(dimHead);
 
     critsByDim[dimName].forEach(function(cid){
@@ -4844,7 +4971,19 @@ function renderSavedEvaluation(p) {
   window._suppressSave = true;
   try {
     if (p.founderScores) window._lastFounderScores = p.founderScores;
+    // Defensive: a project saved before this fix could still have
+    // dimensions missing 'avg' or other numeric fields. Repair it the same
+    // way a fresh evaluation result is repaired, rather than letting an old
+    // record crash the render the moment it's reopened.
+    try {
+      p = normalizeEvalResult(p);
+    } catch (normErr) {
+      console.warn('Saved project failed normalization, rendering as-is:', normErr);
+    }
     renderEvaluation(p);   // wrapper -> sets _lastEvalData, populates DOM (save suppressed)
+  } catch (renderErr) {
+    console.error('Rendering a saved evaluation failed:', renderErr, p);
+    toast('Could not open this project — its saved data looks incomplete.', '!');
   } finally {
     window._suppressSave = false;
   }
