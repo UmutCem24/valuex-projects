@@ -1289,7 +1289,7 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
       <div id="eval-results" style="display:none;">
         <div class="demo-banner" id="demo-banner">
           <span class="badge">Demo</span>
-          <span class="body" id="demo-banner-text"><b>Simulated evaluation.</b> The live evaluation proxy isn't reachable. The scoring below is generated deterministically from your inputs to demo the UI. This usually means <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">ANTHROPIC_API_KEY</span> isn't set in this Netlify site's environment variables yet — see <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">netlify/functions/evaluate.js</span> for the one-time setup.</span>
+          <span class="body" id="demo-banner-text"><b>Simulated evaluation.</b> The live evaluation job could not be started or reached. The scoring below is generated deterministically from your inputs to demo the UI. This usually means <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">ANTHROPIC_API_KEY</span> isn't set in this Netlify site's environment variables yet, or <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">evaluate-start.js</span> / <span class="mono" style="background:rgba(192,135,21,0.18);padding:1px 5px;border-radius:3px;">evaluate-run-background.js</span> aren't deployed — see the comments at the top of those files for the one-time setup.</span>
           <button class="close" id="demo-banner-close">Dismiss</button>
         </div>
         <div class="brand-lockup" id="er-lockup"></div>
@@ -1781,7 +1781,7 @@ red_flags      ← detect_red_flags(all_inputs)
     <div class="loading-card">
       <div class="spinner"></div>
       <h3>VALUEX is evaluating</h3>
-      <p class="sub">Reading inputs, scoring 17 criteria against the rubric, tiering evidence, detecting contradictions.</p>
+      <p class="sub" id="loading-sub">Reading inputs, scoring 17 criteria against the rubric, tiering evidence, detecting contradictions.</p>
       <div class="step-list" id="loading-steps">
         <div class="s done">✓ Reading uploaded files</div>
         <div class="s done">✓ Building evaluation prompt</div>
@@ -2781,12 +2781,33 @@ async function scanPublicSignals() {
 }
 
 // Server-side proxy (netlify/functions/evaluate.js) — holds the real API key
-// as a secret env var and forwards to Anthropic. This is what makes live
-// evaluation (and the public-signal web search) actually work once deployed,
-// instead of silently falling back to demo mode. Requires ANTHROPIC_API_KEY
-// to be set in this Netlify site's environment variables — see the comment
-// at the top of that function for the one-time setup steps.
+// as a secret env var and forwards to Anthropic. Still used for the separate,
+// optional "Scan public signals" call (scanPublicSignals()), which is small
+// and reviewer-triggered on demand.
+//
+// The MAIN evaluation no longer uses this synchronous endpoint. Even after
+// removing web_search and shrinking the prompt/payload, a full 17-criterion
+// scored JSON from Claude routinely takes longer to generate than Netlify's
+// synchronous function ceiling (~10-30s) — that's a generation-time problem,
+// not a payload-size one, so no amount of trimming fixes it reliably. The
+// main flow instead:
+//   1. POSTs the built request to evaluate-start.js — a fast function that
+//      only creates a job record in Netlify Blobs and fires off the real
+//      work to evaluate-run-background.js, then returns a jobId immediately.
+//   2. evaluate-run-background.js is a Netlify Background Function (15-minute
+//      execution limit, filename '-background' suffix) that makes the actual
+//      Anthropic call and writes the result back to the same Blobs record.
+//   3. The browser polls evaluate-status.js every few seconds until the job
+//      is 'completed' or 'failed'.
+// All three live in netlify/functions/ next to evaluate.js and projects.js.
 var EVAL_ENDPOINT = '/.netlify/functions/evaluate';
+var EVAL_START_ENDPOINT = '/.netlify/functions/evaluate-start';
+var EVAL_STATUS_ENDPOINT = '/.netlify/functions/evaluate-status';
+
+function updateLoadingSub(text) {
+  var el = document.getElementById('loading-sub');
+  if (el) el.textContent = text;
+}
 
 async function runVALUEXEvaluation() {
   if (uploadedFiles.length === 0) {
@@ -2816,6 +2837,7 @@ async function runVALUEXEvaluation() {
 
   showLoading();
   setLoadingStep(0);
+  updateLoadingSub('Reading inputs, scoring 17 criteria against the rubric, tiering evidence, detecting contradictions.');
 
   var evalData = null;
   var isDemo = false;
@@ -2958,49 +2980,80 @@ async function runVALUEXEvaluation() {
     }
 
     setLoadingStep(2);
+    updateLoadingSub('Starting the VALUEX evaluation job…');
 
-    // Explicit timeout guard, backstopping Netlify's own ~30s gateway limit.
-    // A stuck request otherwise hangs on the browser's default (very long)
-    // fetch timeout, and — worse — a genuine 504 used to be caught by the
-    // generic catch-all below and quietly rendered as a full demo evaluation,
-    // which looks like a real score. Timeouts now get their own clear,
-    // specific message and never produce fabricated results.
-    var TIMEOUT_MS = 35000;
-    var abortCtrl = new AbortController();
-    var timeoutId = setTimeout(function(){ abortCtrl.abort(); }, TIMEOUT_MS);
+    // ---- Start the job. This call is fast on purpose — it only creates a
+    // record in Netlify Blobs and fires off the background worker, it never
+    // waits on Claude itself, so it can't 504 the way the old single-request
+    // flow did. ----
+    var startResp = await fetch(EVAL_START_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: requestBodyStr
+    });
+    if (!startResp.ok) {
+      var startErrText = await startResp.text();
+      throw new Error('API ' + startResp.status + ': ' + startErrText.slice(0, 160));
+    }
+    var startData = await startResp.json();
+    var jobId = startData.jobId;
+    if (!jobId) throw new Error('Evaluation job did not return a jobId');
 
-    var resp;
-    try {
-      resp = await fetch(EVAL_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBodyStr,
-        signal: abortCtrl.signal
-      });
-    } catch (fetchErr) {
-      clearTimeout(timeoutId);
-      if (fetchErr && fetchErr.name === 'AbortError') {
+    // ---- Poll for completion. The real Claude call now runs inside a
+    // Netlify Background Function (15-minute execution limit) instead of a
+    // synchronous one (~10-30s limit) — that's what actually removes the
+    // 504s. A full 17-criterion scored JSON can legitimately take longer to
+    // generate than Netlify's synchronous ceiling regardless of how small
+    // the prompt/payload are, so this had to be an architecture change, not
+    // another round of trimming. ----
+    var POLL_INTERVAL_MS = 2500;
+    var MAX_POLL_MS = 180000; // 3 min of UI wait; the job itself may run up to 15 min server-side
+    var pollStart = Date.now();
+    var job = null;
+
+    while (true) {
+      var elapsedMs = Date.now() - pollStart;
+      if (elapsedMs > MAX_POLL_MS) {
         hideLoading();
-        toast('VALUEX evaluation timed out after ' + Math.round(TIMEOUT_MS / 1000) + 's — the server took too long to respond. Try again in a moment.', '!');
+        toast('VALUEX evaluation is taking longer than ' + Math.round(MAX_POLL_MS / 1000) + 's — this view stopped waiting, but the job may still finish server-side. Try again shortly.', '!');
         return;
       }
-      throw fetchErr; // genuine network failure (offline, DNS, CORS) — handled by the outer catch as before
-    }
-    clearTimeout(timeoutId);
+      updateLoadingSub('VALUEX (Claude) is scoring — ' + Math.round(elapsedMs / 1000) + 's elapsed…');
 
-    if (resp.status === 504 || resp.status === 502 || resp.status === 503) {
-      hideLoading();
-      toast('VALUEX evaluation timed out on the server (' + resp.status + ') — the function exceeded Netlify\'s time limit. Try again, or shorten the uploaded materials.', '!');
-      return;
+      var statusResp;
+      try {
+        statusResp = await fetch(EVAL_STATUS_ENDPOINT + '?jobId=' + encodeURIComponent(jobId), { method: 'GET' });
+      } catch (pollNetErr) {
+        // Transient network hiccup while polling — keep trying rather than
+        // aborting the whole evaluation over one dropped poll.
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      if (statusResp.status === 404 || !statusResp.ok) {
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
+
+      job = await statusResp.json();
+
+      if (job.status === 'completed') break;
+
+      if (job.status === 'failed') {
+        // A real, specific failure surfaced by the background job (bad key,
+        // Anthropic error, etc.) — never silently rendered as a demo result.
+        hideLoading();
+        toast('VALUEX evaluation failed: ' + (job.error || 'unknown error'), '!');
+        return;
+      }
+
+      // 'pending' or 'running' — keep polling.
+      await sleep(POLL_INTERVAL_MS);
     }
 
-    if (!resp.ok) {
-      var errText = await resp.text();
-      throw new Error('API ' + resp.status + ': ' + errText.slice(0, 160));
-    }
-
+    updateLoadingSub('Parsing the scored response…');
     setLoadingStep(3);
-    var data = await resp.json();
+    var data = JSON.parse(job.result);
     var textOut = (data.content || []).map(function(c){ return c.text || ''; }).join('\n');
     evalData = extractJSON(textOut);
   } catch (err) {
