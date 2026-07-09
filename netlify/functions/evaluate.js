@@ -1,21 +1,27 @@
 // netlify/functions/evaluate.js
 //
-// Proxies a VALUEX evaluation request to the real Anthropic API.
+// Proxies a request to the real Anthropic API. Used ONLY by the separate,
+// optional "Scan public signals" feature (scanPublicSignals() in
+// valuex-workstation.html) now — a small, reviewer-triggered call with its
+// own web_search tool.
 //
-// Why this exists: the workstation (valuex-workstation.html) never talks to
-// api.anthropic.com directly from the browser — that would mean shipping the
-// API key in client-side JS, which anyone could read from devtools. Instead
-// the browser POSTs the fully-built request body (model, system prompt,
+// The MAIN VALUEX evaluation no longer goes through this synchronous
+// endpoint; it uses evaluate-start.js + evaluate-run-background.js +
+// evaluate-status.js instead, because a full scored-JSON response routinely
+// takes longer to generate than Netlify's synchronous function ceiling
+// (10-30s) regardless of prompt/payload size. See evaluate-start.js for
+// the full explanation of that architecture.
+//
+// Why this file exists: the workstation never talks to api.anthropic.com
+// directly from the browser — that would mean shipping the API key in
+// client-side JS, which anyone could read from devtools. Instead the
+// browser POSTs the fully-built request body (model, system prompt,
 // messages, tools) to THIS function, which holds the real key as a server-
 // side secret env var and forwards the call.
 //
 // If this file is missing, or the ANTHROPIC_API_KEY env var isn't set on the
-// Netlify site, every call to /.netlify/functions/evaluate fails, and the
-// workstation's client-side catch block silently falls back to a fixed demo
-// score (see generateMockEvaluation() in valuex-workstation.html). That demo
-// score is deterministic per project name/sector/stage/profile, so it never
-// changes no matter what rubric or source material changes — that was the
-// bug: this function simply didn't exist yet.
+// Netlify site, calls to /.netlify/functions/evaluate fail with a clear
+// error (no more silent demo-mode fallback for this scan either).
 //
 // One-time setup on Netlify:
 //   1. Netlify site -> Site configuration -> Environment variables
