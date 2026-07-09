@@ -2951,7 +2951,7 @@ async function runVALUEXEvaluation() {
 
     var requestBodyObj = {
       model: 'claude-sonnet-5',
-      max_tokens: 2800,
+      max_tokens: 6000,
       system: VALUEX_SYSTEM_PROMPT,
       // No 'tools' here on purpose. web_search made the main evaluation call
       // slow enough to blow past Netlify's function time limit (observed:
@@ -3053,9 +3053,37 @@ async function runVALUEXEvaluation() {
 
     updateLoadingSub('Parsing the scored response…');
     setLoadingStep(3);
-    var data = JSON.parse(job.result);
-    var textOut = (data.content || []).map(function(c){ return c.text || ''; }).join('\n');
-    evalData = extractJSON(textOut);
+
+    var data;
+    try {
+      data = JSON.parse(job.result);
+    } catch (resultParseErr) {
+      // Server-side, evaluate-run-background.js already guards against this
+      // (a job only reaches 'completed' once it's confirmed a text block
+      // exists), but this stays as a second, independent check — a
+      // completed job with unusable content must never be treated as a
+      // demo result.
+      hideLoading();
+      toast('VALUEX evaluation completed but returned unparseable data — try again (not treated as a demo).', '!');
+      return;
+    }
+
+    // Only type:'text' blocks are ever treated as the result. Thinking and
+    // signature blocks are filtered out here too, even though the server
+    // already stores only text blocks — never parse or display those as if
+    // they were the evaluation.
+    var textOut = (data.content || [])
+      .filter(function(c){ return c && c.type === 'text'; })
+      .map(function(c){ return c.text || ''; })
+      .join('\n');
+
+    try {
+      evalData = extractJSON(textOut);
+    } catch (jsonErr) {
+      hideLoading();
+      toast('VALUEX evaluation completed but Claude did not return a valid JSON result — try again (not treated as a demo).', '!');
+      return;
+    }
   } catch (err) {
     // ---- Fallback: demo mode ----
     console.warn('Live API unreachable, falling back to demo mode:', err);
