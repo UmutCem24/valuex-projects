@@ -42,12 +42,13 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-sonnet-5';
 
 // The JSON schema the workstation asks for (17 scored criteria + notes +
-// strengths/weaknesses/contradictions/missing/publicSignalImpact) genuinely
-// needs headroom. If max_tokens is too low the response gets cut off
-// mid-JSON, extractJSON() throws on the client, and THAT also lands back in
-// demo mode — a second, quieter way to end up stuck at the same fallback
-// score. Enforce a sane floor here regardless of what the client sends.
-const MIN_MAX_TOKENS = 4096;
+// strengths/weaknesses/contradictions/missing/publicSignalImpact) needs some
+// headroom, but the client now sends a deliberately tight max_tokens (2800)
+// to keep generation time — the dominant cost once web_search was removed —
+// under Netlify's function timeout. This floor is just a safety net against
+// a pathologically low value truncating the JSON mid-object; it must stay
+// at or below what the client sends, or it would silently undo that fix.
+const MIN_MAX_TOKENS = 2000;
 
 export default async (req) => {
   if (req.method === 'OPTIONS') {
