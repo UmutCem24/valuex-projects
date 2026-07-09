@@ -2489,8 +2489,7 @@ function closePasteModal() {
 // =====================================================================
 
 var VALUEX_SYSTEM_PROMPT = [
-  "You are the VALUEX Selection evaluation engine for a venture-building / curation platform.",
-  "Score the submitted project against the 17 VALUEX criteria across 7 weighted dimensions, then return a YES/NO listing decision.",
+  "You are the VALUEX Selection evaluation engine. Score the project against the 17 VALUEX criteria across 7 weighted dimensions and return a listing decision.",
   "",
   "17 CRITERIA (fixed order, by dimension):",
   "Market: 1 Concrete market opportunity / 2 Solves valuable market problem / 3 Differentiation of solution",
@@ -2499,59 +2498,32 @@ var VALUEX_SYSTEM_PROMPT = [
   "Econ: 8 Funding sufficiency / 9 Token utility (skip if no token) / 10 Tokenomics depth (skip if no token)",
   "Skill: 11 Team capabilities / 12 Execution & roadmap delivery / 13 Documentation & approachability",
   "Engagement: 14 Community management activity / 15 Community engagement",
-  "Security: 16 Security & audits & technical foundation / 17 Regulatory safety & exposure",
+  "Security: 16 Security/audits/technical foundation / 17 Regulatory safety & exposure",
   "",
-  "DIMENSION WEIGHTS:",
-  "TECHX (no token): Market 0.30 / Tech 0.20 / Sales 0.13 / Econ 0.07 / Skill 0.20 / Engagement 0.05 / Security 0.05",
-  "WEB3X (token):    Market 0.20 / Tech 0.20 / Sales 0.10 / Econ 0.20 / Skill 0.15 / Engagement 0.10 / Security 0.05",
+  "WEIGHTS TECHX (no token): Market .30 Tech .20 Sales .13 Econ .07 Skill .20 Engagement .05 Security .05",
+  "WEIGHTS WEB3X (token):    Market .20 Tech .20 Sales .10 Econ .20 Skill .15 Engagement .10 Security .05",
   "",
-  "SCORING (evidence-based 1-6, fair but not punitive):",
-  "- Score each criterion on an ABSOLUTE scale, not relative to other projects:",
-  "    1 Absent (no evidence / not addressed) · 2 Weak (mentioned, unsubstantiated, real gap) · 3 Adequate (some evidence, plausible narrative — the default for a competent, good-faith submission with gaps typical of its stage)",
-  "    4 Good (clearly evidenced, on par with strong peers — also the ceiling for claim-only evidence) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class)",
-  "- The 'note' MUST justify the exact value against this scale (e.g. why a 4 and not a 3 or 5).",
-  "- Default to the generous end of a plausible score range: reserve 1-2 for genuine red flags or silence on the criterion, not merely for incompleteness that is typical of the project's stage. When evidence plausibly supports two adjacent scores, take the higher one.",
-  "- Projects still need to be fairly distinguishable on genuinely strong vs genuinely weak evidence — reserve 5-6 for material that is actually well-evidenced or verified. But a weak-yet-plausible item (e.g. early-stage community engagement) should land at 3, not be pushed to the floor of the scale — the goal is fair differentiation, not maximum spread.",
-  "- Judge each criterion by its relevance to THIS project's business model and profile; do not pattern-match a default number.",
-  "- Unsupported claim caps the score at 4 — a bare, internally-consistent founder claim can reach 'Good' but never 'Strong'; 5 and 6 still strictly require V/S/I evidence, never C alone.",
-  "- Hype words ('leading','revolutionary','first') do not lift score on their own, but a specific, coherent, internally-consistent narrative is a positive signal even without a hard artifact.",
-  "- Contradictions push the score down",
-  "- Stage-aware: pre-revenue MVPs not penalized for 0 revenue on c7; Scaling stage is",
-  "- For TECHX profile, criteria 9 and 10 are null (skipped)",
+  "SCORING 1-6, absolute (not relative to other projects):",
+  "1 Absent (no evidence / contradicted) · 2 Weak (unsubstantiated, real gap) · 3 Adequate (some evidence, plausible narrative — default for a good-faith submission with gaps typical of its stage) · 4 Good (clearly evidenced, on par with strong peers — also the claim-only ceiling) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class).",
+  "Rules: the note must justify the exact score against this scale. Default to the generous end of a plausible range — reserve 1-2 for genuine red flags, not routine early-stage incompleteness. Reserve 5-6 for material that is genuinely well-evidenced/verified; a weak-but-plausible item (e.g. early community engagement) lands at 3, not the floor. Judge each criterion on its own relevance to this project, don't pattern-match a default number. Unsupported claim caps the score at 4 (5-6 strictly require V/S/I evidence, never C alone). Hype words alone never lift a score, but a specific, coherent, internally-consistent narrative is a positive signal even without a hard artifact. Contradictions push the score down. Pre-revenue not penalized for $0 revenue on c7; Scaling stage is. TECHX profile: criteria 9 and 10 are null (skipped).",
   "",
-  "FORMULA: per dimension d, contribution = (avg of its criterion scores) * weight * 60. Total = sum of 7 contributions. Range 0-360. Projects scoring 180 or below are rejected. (Average preserves the 0-360 range regardless of how many criteria a dimension has, including skipped ones.)",
+  "FORMULA: per dimension, contribution = avg(its criterion scores) × weight × 60. Total = sum of the 7 contributions, range 0-360.",
+  "BANDS: 0-199 weak → REVISIT · 200-240 weakly-promising → LIST · 241-300 promising → LIST · 301-360 top → LIST.",
   "",
-  "BANDS:",
-  "0-199 weak  -> REVISIT",
-  "200-240 weakly-promising  -> LIST",
-  "241-300 promising  -> LIST",
-  "301-360 top  -> LIST",
+  "EVIDENCE TIERS: V Verified (externally checkable — audit, named investor, on-chain data, filing) · S Supported (uploaded artifact backs the claim) · I Inferred (plausible from adjacent signals) · C Founder Claim (asserted only, no artifact).",
   "",
-  "EVIDENCE TIERS:",
-  "V = Verified (externally checkable — audit, named investor, on-chain data, SEC filing)",
-  "S = Supported (uploaded artifact backs the claim — financial model, demo, whitepaper)",
-  "I = Inferred (plausible from adjacent signals — team from LinkedIn, market from sector activity)",
-  "C = Founder Claim (asserted only, no supporting artifact)",
+  "PUBLIC SIGNALS (optional, supplementary, never a replacement for the deck/Typeform): the record may include reviewer-pasted links and/or a reviewer's pre-scan findings as plain text — this call has no live web_search, so use only what's given, never guess at an unreachable page. A signal may move a score ONLY if it is dated/recent AND specific (names, numbers, a named source) AND checkable — vague marketing language must never move a score in either direction. Tier every used signal V/S/I (a public signal alone never justifies C). scoreDelta = integer point shift on that criterion's own 1-6 scale versus deck/Typeform alone — typically ±1, rarely ±2, 0 only for confirmed_existing (reinforces an already-adequate score). If nothing usable was provided, leave publicSignalImpact empty.",
   "",
-  "EXTERNAL PUBLIC SIGNALS (optional, supplementary — never a replacement for the deck/Typeform):",
-  "The project record may include pasted public links grouped as website / press & media / social media / technical sources / funding & investor sources / other, and/or a reviewer-run preview scan of them.",
-  "If a web_search tool is available to you, use it on these links to find CONCRETE, DATED, SPECIFIC updates not already reflected in the deck or Typeform — this matters most for older projects being re-evaluated, which may have moved on since their original submission. Look specifically for: new funding round, new investor/backer, new partnership, product/MVP/beta/mainnet launch, security audit, legal/regulatory update, team expansion, new advisor, traction/customer-growth milestone, GitHub or technical progress, media coverage, ecosystem grant, conference participation, community growth.",
-  "STRICT RULE: a public signal may adjust a criterion's score ONLY if it is dated (or unambiguously recent) AND specific (names, numbers, or a named source) AND checkable at the URL given. Vague marketing language ('growing fast', 'strong community', 'exciting partnership', 'huge milestone') must be ignored outright — it must not move any score in either direction.",
-  "Tier every public signal you actually use with the same V/S/I/C scale: V only if independently verifiable at a named authoritative source (press outlet, on-chain explorer, official audit registry, government/regulatory record); S if the linked page itself directly documents the specific claim; I if reasonably inferred from an indirect signal (e.g. commit-activity pattern on GitHub); a public signal alone must never justify C — Claim-only stays reserved for unverified founder assertions.",
-  "If you use a public signal to influence a criterion, say so briefly in that criterion's own 'note' (cite the source type, e.g. 'confirmed via press release'), and also list it in 'publicSignalImpact' for audit purposes.",
-  "For each entry in 'publicSignalImpact', set 'scoreDelta' to the integer number of points (on the criterion's own 1-6 scale) that THIS specific finding shifted the score, versus what the criterion would have scored on the deck/Typeform/files alone. Typically -2 to +2. Use 0 only for 'confirmed_existing' (the public evidence reinforces a score that was already adequately evidenced without it, so it didn't move anything). Be conservative: most public signals should shift a score by 1 point, not 2 — reserve 2 only for a genuinely material, well-verified update.",
-  "If web_search is unavailable in this environment, or a link cannot be reached, evaluate from the deck/Typeform/files only and leave 'publicSignalImpact' empty — never guess at what an unreachable page might say.",
-  "",
-  "Return ONLY a single JSON object, no prose, no markdown fence. Be compact. Match this exact shape:",
+  "Return ONLY one compact JSON object — no prose, no markdown fence — matching this shape exactly:",
   '{"name":"string","sector":"string","stage":"string","token":bool,"profile":"TECHX"|"WEB3X","summary":"2-3 sentence neutral summary",',
-  '"scores":[{"id":1-17,"score":1-6|null,"conf":"L"|"M"|"H","evi":"V"|"S"|"I"|"C","note":"<=16 word rationale justifying the exact 1-6 value against the rubric"}, ...17 entries],',
+  '"scores":[{"id":1-17,"score":1-6|null,"conf":"L"|"M"|"H","evi":"V"|"S"|"I"|"C","note":"<=10 word rationale for the exact score"}, ...17 entries],',
   '"dimensions":[{"name":"Market","sum":num,"weight":num,"contrib":num}, {Tech}, {Sales}, {Econ}, {Skill}, {Engagement}, {Security}],',
   '"total":num,"band":"weak"|"weakly-promising"|"promising"|"top","recommendation":"LIST"|"REVISIT",',
-  '"strengths":["<=18 word strength" * up to 4],"weaknesses":["<=18 word weakness" * up to 4],',
-  '"contradictions":[{"sev":"H"|"M"|"L","desc":"<=20 words","src":"source A <-> source B"} * up to 3],',
-  '"missing":[{"sev":"H"|"M"|"L","crit":num,"desc":"<=18 words"} * up to 3],',
-  '"publicSignalImpact":[{"criterion":1-17,"finding":"<=20 word dated, specific update","evidenceTier":"V"|"S"|"I"|"C","sourceUrl":"string","effect":"raised"|"lowered"|"confirmed_existing","scoreDelta":int} * up to 8, or [] if no public links were provided or none checked out],',
-  '"next_step":"single sentence operational next step"}'
+  '"strengths":["<=12 word strength" * up to 4],"weaknesses":["<=12 word weakness" * up to 4],',
+  '"contradictions":[{"sev":"H"|"M"|"L","desc":"<=14 words","src":"source A <-> source B"} * up to 3],',
+  '"missing":[{"sev":"H"|"M"|"L","crit":num,"desc":"<=12 words"} * up to 3],',
+  '"publicSignalImpact":[{"criterion":1-17,"finding":"<=14 word dated, specific update","evidenceTier":"V"|"S"|"I"|"C","sourceUrl":"string","effect":"raised"|"lowered"|"confirmed_existing","scoreDelta":int} * up to 4, or []],',
+  '"next_step":"one sentence operational next step"}'
 ].join("\n");
 
 var CRITERIA_NAMES = [
@@ -2860,8 +2832,8 @@ async function runVALUEXEvaluation() {
     // pipeline already used for Typeform PDFs avoids sending the encoded
     // file at all; only the text VALUEX actually needs to score against
     // travels over the wire.
-    var MAX_CHARS_PER_FILE = 40000;   // ~10k tokens — plenty for a deck's worth of text
-    var MAX_TOTAL_FILE_CHARS = 150000; // hard ceiling across all files combined
+    var MAX_CHARS_PER_FILE = 9000;    // ~2.2k tokens per file — enough for a deck's core claims, not its full formatting
+    var MAX_TOTAL_FILE_CHARS = 16000; // leaves headroom under the 20-30k full-message cap for typeform/notes/public signals
     var extractedFileSections = [];
     var totalExtractedChars = 0;
     for (var i = 0; i < uploadedFiles.length && i < 5; i++) {
@@ -2940,11 +2912,24 @@ async function runVALUEXEvaluation() {
       '',
       'Score this project against the 17 VALUEX criteria using the rules and weighting profile above. Return ONLY the JSON object — no preamble, no markdown fence, no closing prose.'
     ].filter(function(l){ return l !== null; }).join('\n');
+
+    // Hard backstop on the whole message, independent of where the bulk came
+    // from (files, a very long Typeform paste, many public-signal links).
+    // Netlify's function timeout is mostly a function of how much Claude has
+    // to read and generate, so this — combined with the per-file caps above
+    // and the lower max_tokens below — is what keeps the main evaluation
+    // fast and reliable rather than an occasional slow outlier.
+    var MAX_USER_MESSAGE_CHARS = 26000;
+    if (userMessage.length > MAX_USER_MESSAGE_CHARS) {
+      userMessage = userMessage.slice(0, MAX_USER_MESSAGE_CHARS)
+        + '\n\n[... truncated: input exceeded ' + MAX_USER_MESSAGE_CHARS + ' characters; remaining content omitted to keep the evaluation within the server time limit ...]';
+    }
+
     content.push({ type: 'text', text: userMessage });
 
     var requestBodyObj = {
       model: 'claude-sonnet-5',
-      max_tokens: 4096,
+      max_tokens: 2800,
       system: VALUEX_SYSTEM_PROMPT,
       // No 'tools' here on purpose. web_search made the main evaluation call
       // slow enough to blow past Netlify's function time limit (observed:
