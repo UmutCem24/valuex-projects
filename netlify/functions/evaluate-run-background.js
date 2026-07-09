@@ -19,6 +19,17 @@
 // harmless to specify together, and between the two this function is
 // guaranteed to run in background mode regardless of which mechanism this
 // site's build actually honors.
+//
+// THINKING: Claude Sonnet 5 defaults to adaptive thinking ON (effort:
+// "high") whenever a request omits the 'thinking' field — this is a
+// behavior change from earlier Sonnet models, where omitting it meant no
+// thinking. Thinking tokens count against max_tokens like any other output
+// token. That's exactly what broke the first version of this file: with no
+// 'thinking' field set, Claude spent the entire max_tokens budget thinking
+// and stop_reason came back "max_tokens" with a thinking block and no text
+// block at all — VALUEX had nothing to parse. Fixed below by explicitly
+// setting thinking: { type: "disabled" }, which is the documented way to
+// turn it off entirely for this model.
 
 import { getStore } from '@netlify/blobs';
 
@@ -28,7 +39,11 @@ const JOB_STORE = 'valuex-eval-jobs';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-sonnet-5';
-const MIN_MAX_TOKENS = 2000;
+// Now that this runs as a background job (15-minute ceiling, not the old
+// 10-30s synchronous one), there's no more reason to keep max_tokens tight
+// for latency's sake. Raised back up for safety headroom on the JSON output
+// itself now that thinking is disabled and no longer competes for the budget.
+const MIN_MAX_TOKENS = 3000;
 
 export default async (req) => {
   const store = getStore({ name: JOB_STORE, consistency: 'strong' });
@@ -60,6 +75,11 @@ export default async (req) => {
     const payload = {
       model: reqPayload.model || DEFAULT_MODEL,
       max_tokens: Math.max(reqPayload.max_tokens || 0, MIN_MAX_TOKENS),
+      // Explicitly off. VALUEX needs a plain JSON text response, not a
+      // reasoning trace, and leaving this field unset lets Sonnet 5's
+      // default adaptive thinking silently eat the whole max_tokens budget
+      // (see the file header for the exact failure mode this caused).
+      thinking: { type: 'disabled' },
       system: reqPayload.system,
       messages: reqPayload.messages,
     };
@@ -102,9 +122,47 @@ export default async (req) => {
       return;
     }
 
+    // Parse the response here (rather than leaving it to the client) so a
+    // "thinking only, no text" reply can be caught and failed at the source
+    // — it must never reach 'completed' with nothing usable in it. Only
+    // type:"text" blocks are ever treated as the result; thinking/signature
+    // blocks are filtered out and never stored.
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('evaluate-run-background: could not parse Anthropic response as JSON:', parseErr, text.slice(0, 300));
+      await store.setJSON(jobId, {
+        status: 'failed',
+        error: 'Could not parse the Anthropic response as JSON.',
+        failedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const textBlocks = (data.content || []).filter(function (b) { return b && b.type === 'text'; });
+    const combinedText = textBlocks.map(function (b) { return b.text || ''; }).join('\n').trim();
+
+    if (!combinedText) {
+      const stopReason = data.stop_reason || 'unknown';
+      const errorMsg = stopReason === 'max_tokens'
+        ? 'Claude exhausted max_tokens before producing JSON.'
+        : 'Claude returned no text content (stop_reason: ' + stopReason + ').';
+      console.error('evaluate-run-background: no text block in response —', errorMsg, 'content types:', (data.content || []).map(function (b) { return b && b.type; }));
+      await store.setJSON(jobId, {
+        status: 'failed',
+        error: errorMsg,
+        failedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
     await store.setJSON(jobId, {
       status: 'completed',
-      result: text, // raw Anthropic response body — parsed client-side exactly as the old synchronous path did
+      // Only the extracted text block(s) + stop_reason are stored — never
+      // the raw response verbatim, so a thinking or signature block (which
+      // can be large) can never end up parsed or displayed as the result.
+      result: JSON.stringify({ content: textBlocks, stop_reason: data.stop_reason }),
       completedAt: new Date().toISOString(),
     });
   } catch (err) {
