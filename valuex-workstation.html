@@ -2946,7 +2946,14 @@ async function runVALUEXEvaluation() {
       model: 'claude-sonnet-5',
       max_tokens: 4096,
       system: VALUEX_SYSTEM_PROMPT,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }],
+      // No 'tools' here on purpose. web_search made the main evaluation call
+      // slow enough to blow past Netlify's function time limit (observed:
+      // 504 after ~30s with it enabled). The main score now runs purely off
+      // the Typeform answers, uploaded/deck text, and project fields — fast
+      // and deterministic. If the reviewer wants public-link updates folded
+      // in, that's the separate, optional "Scan public signals" button
+      // (scanPublicSignals()), which keeps its own web_search tool and is
+      // never part of this request.
       messages: [{ role: 'user', content: content }]
     };
     var requestBodyStr = JSON.stringify(requestBodyObj);
@@ -2967,11 +2974,40 @@ async function runVALUEXEvaluation() {
 
     setLoadingStep(2);
 
-    var resp = await fetch(EVAL_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: requestBodyStr
-    });
+    // Explicit timeout guard, backstopping Netlify's own ~30s gateway limit.
+    // A stuck request otherwise hangs on the browser's default (very long)
+    // fetch timeout, and — worse — a genuine 504 used to be caught by the
+    // generic catch-all below and quietly rendered as a full demo evaluation,
+    // which looks like a real score. Timeouts now get their own clear,
+    // specific message and never produce fabricated results.
+    var TIMEOUT_MS = 35000;
+    var abortCtrl = new AbortController();
+    var timeoutId = setTimeout(function(){ abortCtrl.abort(); }, TIMEOUT_MS);
+
+    var resp;
+    try {
+      resp = await fetch(EVAL_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBodyStr,
+        signal: abortCtrl.signal
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr && fetchErr.name === 'AbortError') {
+        hideLoading();
+        toast('VALUEX evaluation timed out after ' + Math.round(TIMEOUT_MS / 1000) + 's — the server took too long to respond. Try again in a moment.', '!');
+        return;
+      }
+      throw fetchErr; // genuine network failure (offline, DNS, CORS) — handled by the outer catch as before
+    }
+    clearTimeout(timeoutId);
+
+    if (resp.status === 504 || resp.status === 502 || resp.status === 503) {
+      hideLoading();
+      toast('VALUEX evaluation timed out on the server (' + resp.status + ') — the function exceeded Netlify\'s time limit. Try again, or shorten the uploaded materials.', '!');
+      return;
+    }
 
     if (!resp.ok) {
       var errText = await resp.text();
