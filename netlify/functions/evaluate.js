@@ -82,7 +82,6 @@ export default async (req) => {
   const payload = {
     model: body.model || DEFAULT_MODEL,
     max_tokens: Math.max(body.max_tokens || 0, MIN_MAX_TOKENS),
-    temperature: typeof body.temperature === 'number' ? body.temperature : 0,
     system: body.system,
     messages: body.messages,
   };
