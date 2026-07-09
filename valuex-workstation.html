@@ -2851,18 +2851,50 @@ async function runVALUEXEvaluation() {
 
   try {
     // ---- Attempt real VALUEX call ----
-    var fileResults = [];
+    // Files used to be read as base64 and sent to Anthropic as raw 'document'
+    // blocks. That inflates a multi-MB deck by ~33% (base64 overhead), and
+    // Netlify Functions reject request bodies above a hard size ceiling —
+    // a few large PDFs alone were enough to push the POST body past 13 MB
+    // and get rejected before the function even ran (empty response body,
+    // plain 400). Extracting plain text client-side with the same pdf.js
+    // pipeline already used for Typeform PDFs avoids sending the encoded
+    // file at all; only the text VALUEX actually needs to score against
+    // travels over the wire.
+    var MAX_CHARS_PER_FILE = 40000;   // ~10k tokens — plenty for a deck's worth of text
+    var MAX_TOTAL_FILE_CHARS = 150000; // hard ceiling across all files combined
+    var extractedFileSections = [];
+    var totalExtractedChars = 0;
     for (var i = 0; i < uploadedFiles.length && i < 5; i++) {
-      fileResults.push(await readFileAsBase64(uploadedFiles[i]));
+      var upf = uploadedFiles[i];
+      if (!upf.name.toLowerCase().endsWith('.pdf')) {
+        extractedFileSections.push('--- ' + upf.name + ' ---\n(Not a PDF — this workstation only extracts text from PDFs; the filename is passed as context, but its content is not sent.)');
+        continue;
+      }
+      var pdfText = '';
+      try {
+        pdfText = await extractPDFText(upf);
+      } catch (exErr) {
+        console.warn('PDF extraction failed for ' + upf.name + ':', exErr);
+        pdfText = '';
+      }
+      if (!pdfText || pdfText.trim().length < 30) {
+        extractedFileSections.push('--- ' + upf.name + ' ---\n(No extractable text found — likely a scanned/image-only PDF. Treat any claims resting solely on this file as unverifiable / claim-only.)');
+        continue;
+      }
+      var remainingBudget = Math.max(0, MAX_TOTAL_FILE_CHARS - totalExtractedChars);
+      var perFileCap = Math.min(MAX_CHARS_PER_FILE, remainingBudget);
+      var wasTruncated = pdfText.length > perFileCap;
+      var slice = pdfText.slice(0, perFileCap);
+      totalExtractedChars += slice.length;
+      extractedFileSections.push(
+        '--- ' + upf.name + ' (extracted text' + (wasTruncated ? ', truncated to ' + perFileCap + ' of ' + pdfText.length + ' characters' : '') + ') ---\n' + slice
+      );
+      if (totalExtractedChars >= MAX_TOTAL_FILE_CHARS) break;
     }
+    var fileContentBlock = extractedFileSections.join('\n\n') || '(no extractable file content)';
     setLoadingStep(1);
 
     var content = [];
-    fileResults.forEach(function(fr){
-      if (fr.name.toLowerCase().endsWith('.pdf')) {
-        content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fr.base64 } });
-      }
-    });
 
     var typeformText = getTypeformText();
     var psLinks = collectPublicSignalLinks();
@@ -2895,6 +2927,9 @@ async function runVALUEXEvaluation() {
       '- Weighting profile: ' + pProfile,
       '- Uploaded files: ' + meta.fileNames.join(', '),
       '',
+      'Uploaded file contents (auto-extracted text, may be truncated for large files):',
+      fileContentBlock,
+      '',
       'Typeform answers from the founder:',
       typeformText || '(no Typeform answers — evaluate from the uploaded materials only)',
       '',
@@ -2907,18 +2942,35 @@ async function runVALUEXEvaluation() {
     ].filter(function(l){ return l !== null; }).join('\n');
     content.push({ type: 'text', text: userMessage });
 
+    var requestBodyObj = {
+      model: 'claude-sonnet-5',
+      max_tokens: 4096,
+      system: VALUEX_SYSTEM_PROMPT,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }],
+      messages: [{ role: 'user', content: content }]
+    };
+    var requestBodyStr = JSON.stringify(requestBodyObj);
+
+    // Pre-flight size guard — Netlify Functions reject oversized request
+    // bodies before the function code even runs, which used to look
+    // identical to "API unreachable" and silently dropped into demo mode.
+    // Check the real payload size here and fail loudly and specifically
+    // instead, so it's never mistaken for a missing API key or a dead
+    // endpoint again.
+    var MAX_PAYLOAD_BYTES = 4 * 1024 * 1024; // stay well under Netlify's hard cap
+    var payloadBytes = new Blob([requestBodyStr]).size;
+    if (payloadBytes > MAX_PAYLOAD_BYTES) {
+      hideLoading();
+      toast('Evaluation payload too large (' + (payloadBytes / (1024*1024)).toFixed(1) + ' MB) — remove a file or use a smaller/text-based PDF, then try again', '!');
+      return;
+    }
+
     setLoadingStep(2);
 
     var resp = await fetch(EVAL_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 4096,
-        system: VALUEX_SYSTEM_PROMPT,
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }],
-        messages: [{ role: 'user', content: content }]
-      })
+      body: requestBodyStr
     });
 
     if (!resp.ok) {
