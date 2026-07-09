@@ -89,6 +89,12 @@ export default async (req) => {
   const payload = {
     model: body.model || DEFAULT_MODEL,
     max_tokens: Math.max(body.max_tokens || 0, MIN_MAX_TOKENS),
+    // Same fix as evaluate-run-background.js: Claude Sonnet 5 defaults to
+    // adaptive thinking ON when this field is omitted, and thinking tokens
+    // count against max_tokens — with this scan's tight 1200-token budget,
+    // an unset 'thinking' field risks the exact same "all budget spent
+    // thinking, no text produced" failure the main evaluation hit.
+    thinking: { type: 'disabled' },
     system: body.system,
     messages: body.messages,
   };
