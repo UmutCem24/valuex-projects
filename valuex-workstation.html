@@ -1309,6 +1309,11 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
           <span class="txt">Public signals applied to this score: <b id="er-pubsig-strip-count">0</b> finding(s) · net <b id="er-pubsig-strip-delta">+0.0 pts</b> of the total <span style="color:var(--text-3);font-weight:400;">(before signals: <span id="er-pubsig-strip-base">—</span>/360)</span></span>
           <a href="#card-public-signals" class="jump" id="er-pubsig-strip-jump">View detail ↓</a>
         </div>
+        <div class="ps-impact-strip" id="er-uplift-strip" style="display:none;background:rgba(63,158,99,0.08);border-color:rgba(63,158,99,0.28);">
+          <span class="ic">▲</span>
+          <span class="txt">Confidence Uplift applied: <b id="er-uplift-strip-pts" style="color:var(--green);">+0 pts</b> for verified funding/partnership/regulatory strength <span style="color:var(--text-3);font-weight:400;">(before uplift: <span id="er-uplift-strip-base">—</span>/360)</span> — <b style="color:var(--amber);">reviewer sign-off required</b></span>
+          <a href="#card-uplift" class="jump" id="er-uplift-strip-jump">View detail ↓</a>
+        </div>
         <div class="eval-body">
 
           <div class="grid-2col">
@@ -1456,6 +1461,18 @@ a.comp-name:hover { color: var(--purple); text-decoration: underline; }
               </div>
               <div class="card-foot-note">Reading it · each numbered dot is a criterion &nbsp;·&nbsp; lower = weaker (more risk) &nbsp;·&nbsp; further right = more points gained if fixed &nbsp;·&nbsp; bottom-right ⚠ = highest-priority fixes. Hover a dot for detail.</div>
             </div>
+          </div>
+
+          <!-- Confidence Uplift — only rendered with content when eligible/applied -->
+          <div class="card-ev" id="card-uplift" style="display:none;">
+            <div class="card-head"><h3>▲ Confidence Uplift <span class="help-ico" data-tip="An evidence-gated mechanism for projects that land just below the 241 Promising line (226-240) with genuinely verified strength on funding, partnerships, or regulatory status — never a blanket score boost. Only fires with V/S-tier evidence on at least 2 of those three criteria, capped at +15 points, and always flagged for reviewer sign-off before publishing.">?</span></h3><span class="meta" id="er-uplift-meta"></span></div>
+            <div class="card-body" id="er-uplift-body"></div>
+          </div>
+
+          <!-- Investor & diligence notes — new narrative fields (funding, regulatory, partnership, investor relevance) -->
+          <div class="card-ev" id="card-diligence-notes">
+            <div class="card-head"><h3>◆ Investor &amp; Diligence Notes</h3><span class="meta">Why it matters, and what backs each claim</span></div>
+            <div class="card-body" id="er-diligence-notes"></div>
           </div>
 
           <!-- Evidence Heatmap -->
@@ -1627,15 +1644,15 @@ red_flags      ← detect_red_flags(all_inputs)
           <p class="sub">The 17 criteria roll up into 7 dimensions. Each dimension carries a weight. There are two weighting profiles — exactly as in your current sheet — chosen at intake depending on whether the project has a token.</p>
           <div class="dim-table">
             <div class="h"><div>Dimension</div><div>Criteria</div><div class="num">TECHX</div><div class="num">WEB3X</div></div>
-            <div class="r"><div class="dn">Market &amp; purpose</div><div class="crits">1 · 2 · 3</div><div class="num techx">0.24</div><div class="num web3x">0.20</div></div>
+            <div class="r"><div class="dn">Market &amp; purpose</div><div class="crits">1 · 2 · 3</div><div class="num techx">0.21</div><div class="num web3x">0.20</div></div>
             <div class="r"><div class="dn">Technology</div><div class="crits">4</div><div class="num techx">0.20</div><div class="num web3x">0.20</div></div>
             <div class="r"><div class="dn">Sales &amp; Funding</div><div class="crits">5 · 6 · 7</div><div class="num techx">0.22</div><div class="num web3x">0.10</div></div>
-            <div class="r"><div class="dn">Economics</div><div class="crits">8 · 9 · 10</div><div class="num techx">0.07</div><div class="num web3x">0.20</div></div>
+            <div class="r"><div class="dn">Economics</div><div class="crits">8 · 9 · 10</div><div class="num techx">0.10</div><div class="num web3x">0.20</div></div>
             <div class="r"><div class="dn">Skill, staffing &amp; execution</div><div class="crits">11 · 12 · 13</div><div class="num techx">0.17</div><div class="num web3x">0.15</div></div>
             <div class="r"><div class="dn">Engagement</div><div class="crits">14 · 15</div><div class="num techx">0.05</div><div class="num web3x">0.10</div></div>
             <div class="r"><div class="dn">Security</div><div class="crits">16 · 17</div><div class="num techx">0.05</div><div class="num web3x">0.05</div></div>
           </div>
-          <div class="callout-row"><span class="tag">Why two profiles</span> &nbsp; <b>TECHX</b> (no token) leans on market, commercial traction and team. <b>WEB3X</b> (token) shifts weight into Economics (tokenomics) and Engagement (community). On a TECHX project, criteria 9 &amp; 10 are skipped and Economics rests on funding alone.</div>
+          <div class="callout-row" style="margin-top:14px;"><span class="tag">Why two profiles</span> &nbsp; <b>TECHX</b> (no token) leans on market, commercial traction and funding quality. <b>WEB3X</b> (token) shifts weight into Economics (tokenomics) and Engagement (community). On a TECHX project, criteria 9 &amp; 10 are skipped, and Economics rewards verified, reputable funding rather than raw amount alone.</div>
         </div>
 
         <div class="method-block" id="m6">
@@ -2500,17 +2517,22 @@ var VALUEX_SYSTEM_PROMPT = [
   "Engagement: 14 Community management activity / 15 Community engagement",
   "Security: 16 Security/audits/technical foundation / 17 Regulatory safety & exposure",
   "",
-  "WEIGHTS TECHX (no token): Market .24 Tech .20 Sales .22 Econ .07 Skill .17 Engagement .05 Security .05",
+  "WEIGHTS TECHX (no token): Market .21 Tech .20 Sales .22 Econ .10 Skill .17 Engagement .05 Security .05",
   "WEIGHTS WEB3X (token):    Market .20 Tech .20 Sales .10 Econ .20 Skill .15 Engagement .10 Security .05",
   "",
   "SCORING 1-6, absolute (not relative to other projects):",
   "1 Absent (no evidence / contradicted) · 2 Weak (unsubstantiated, real gap) · 3 Adequate (some evidence, plausible narrative — default for a good-faith submission with gaps typical of its stage) · 4 Good (clearly evidenced, on par with strong peers — also the claim-only ceiling) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class).",
   "Rules: the note must justify the exact score against this scale. Default to the generous end of a plausible range — reserve 1-2 for genuine red flags, not routine early-stage incompleteness. Reserve 5-6 for material that is genuinely well-evidenced/verified; a weak-but-plausible item (e.g. early community engagement) lands at 3, not the floor. Judge each criterion on its own relevance to this project, don't pattern-match a default number. Unsupported claim caps the score at 4 (5-6 strictly require V/S/I evidence, never C alone). Hype words alone never lift a score, but a specific, coherent, internally-consistent narrative is a positive signal even without a hard artifact. Contradictions push the score down. Pre-revenue not penalized for $0 revenue on c7; Scaling stage is. TECHX profile: criteria 9 and 10 are null (skipped).",
+  "Funding sufficiency (c8) is scored on VERIFIED QUALITY, not amount: a large but unconfirmed round never scores higher than a bare claim (cap 4). A smaller round independently verified, from a named, reputable/institutional investor, appropriate to the project's stage and reasonably recent, can reach 5-6. State investor name, verification status, and recency explicitly in the note.",
   "",
   "FORMULA: per dimension, contribution = avg(its criterion scores) × weight × 60. Total = sum of the 7 contributions, range 0-360.",
-  "BANDS: 0-199 weak → REVISIT · 200-240 weakly-promising → LIST · 241-300 promising → LIST · 301-360 top → LIST.",
+  "BANDS: 0-199 weak → REVISIT · 200-240 weakly-promising → LIST · 241-300 promising → LIST · 301-360 top → LIST. (Apply to the POST-uplift total if a Confidence Uplift below is applied.)",
   "",
   "EVIDENCE TIERS: V Verified (externally checkable — audit, named investor, on-chain data, filing) · S Supported (uploaded artifact backs the claim) · I Inferred (plausible from adjacent signals) · C Founder Claim (asserted only, no artifact).",
+  "",
+  "REGULATORY & LICENSING SIGNAL (cross-cutting, evidence-gated, never automatic): a verified regulatory license/registration (e.g. FINMA or another reputable regulator) or a verified licensing-as-a-service / licensing partnership can lift the criteria it genuinely touches — typically c17 (regulatory safety), often c6 (partnerships), and sometimes c1/c3/c5/c7/c8/c11/c12 if the license or partnership demonstrably unlocks market access, revenue, or execution capacity. This ONLY applies at V or S evidence tier — a verifiable register entry, license number/status, or a specific named commercial term of the partnership. A bare mention of a regulator or partner name with no such backing stays evidence tier C and MUST NOT move any score. Never infer commercial value from a name alone.",
+  "",
+  "CONFIDENCE UPLIFT (evidence-gated, capped, always fully logged — never invent points, never use to paper over weak evidence): only evaluate when the pre-uplift total falls in the uplift zone 226-240 (just below the 241 Promising line). Eligible only if at least 2 of {c6 partnerships, c8 funding, c17 regulatory} are scored at V or S tier AND there is no unresolved high-severity contradiction. If eligible, award +3 to +6 points per qualifying criterion among those three (integer, proportional to evidence strength), capped at +15 total — enough to cross into Promising, never enough to reach Top on uplift alone. List every criterion and reason used. If not in zone or not eligible, return the null/false shape shown in the JSON spec below — do not omit the field.",
   "",
   "PUBLIC SIGNALS (optional, supplementary, never a replacement for the deck/Typeform): the record may include reviewer-pasted links and/or a reviewer's pre-scan findings as plain text — this call has no live web_search, so use only what's given, never guess at an unreachable page. A signal may move a score ONLY if it is dated/recent AND specific (names, numbers, a named source) AND checkable — vague marketing language must never move a score in either direction. Tier every used signal V/S/I (a public signal alone never justifies C). scoreDelta = integer point shift on that criterion's own 1-6 scale versus deck/Typeform alone — typically ±1, rarely ±2, 0 only for confirmed_existing (reinforces an already-adequate score). If nothing usable was provided, leave publicSignalImpact empty.",
   "",
@@ -2523,6 +2545,11 @@ var VALUEX_SYSTEM_PROMPT = [
   '"contradictions":[{"sev":"H"|"M"|"L","desc":"<=14 words","src":"source A <-> source B"} * up to 3],',
   '"missing":[{"sev":"H"|"M"|"L","crit":num,"desc":"<=12 words"} * up to 3],',
   '"publicSignalImpact":[{"criterion":1-17,"finding":"<=14 word dated, specific update","evidenceTier":"V"|"S"|"I"|"C","sourceUrl":"string","effect":"raised"|"lowered"|"confirmed_existing","scoreDelta":int} * up to 4, or []],',
+  '"investorRelevance":"<=28 words, why this matters to capital",',
+  '"fundingNote":"<=28 words on funding evidence: amount, investor reputation, verification status, recency — or \'No material funding signal\' if none",',
+  '"regulatoryNote":"<=28 words on regulatory/licensing status and its commercial implication — or \'No material regulatory/licensing signal\' if none",',
+  '"partnershipNote":"<=28 words on strategic/licensing partnership value — or \'No material partnership signal\' if none",',
+  '"uplift":{"eligible":bool,"applied":bool,"baseTotal":num|null,"points":int,"reasons":["<=14 words tied to one of c6/c8/c17 and its evidence tier" * up to 3],"requiresReview":bool},',
   '"next_step":"one sentence operational next step"}'
 ].join("\n");
 
@@ -2560,13 +2587,13 @@ var EXPLAIN = {
     L: 'LOW confidence.\n\nLimited information or weak signals supporting this score. The score could shift materially as more evidence arrives. Flagged as a candidate for evidence upgrade.'
   },
   weights: {
-    Market: 'MARKET & PURPOSE dimension (criteria 1, 2, 3 — market opportunity, problem fit, differentiation).\n\nTECHX weight: 0.24 (highest, narrowly)\nWEB3X weight: 0.20\n\nStill the single heaviest weight in TECHX, but Sales & Funding (0.22) now sits close behind it — market opportunity and demonstrated commercial traction are treated as close to equally decisive.',
+    Market: 'MARKET & PURPOSE dimension (criteria 1, 2, 3 — market opportunity, problem fit, differentiation).\n\nTECHX weight: 0.21\nWEB3X weight: 0.20\n\nSales & Funding (0.22) now edges slightly ahead of Market — demonstrated commercial traction and validated funding are treated as marginally more decisive than market thesis alone.',
     Tech: 'TECHNOLOGY dimension (criterion 4 — technological innovation).\n\nTECHX weight: 0.20\nWEB3X weight: 0.20\n\nSame weight in both profiles. A single criterion that captures whether the core technology is genuinely differentiated.',
     Sales: 'SALES & FUNDING dimension (criteria 5, 6, 7 — customer acquisition, partnerships, revenue model).\n\nTECHX weight: 0.22\nWEB3X weight: 0.10\n\nRaised from 0.13 in TECHX to reflect how heavily investor decisions now weigh demonstrated revenue and commercial traction, not just market thesis.',
-    Econ: 'ECONOMICS dimension (criteria 8, 9, 10 — funding, token utility, tokenomics depth).\n\nTECHX weight: 0.07 (criteria 9 & 10 skipped)\nWEB3X weight: 0.20 (all three criteria scored)\n\nMassive shift between profiles. WEB3X projects must defend their tokenomics; TECHX projects only need funding sufficiency — kept deliberately low, since capital already raised is a weaker signal than proven traction.',
+    Econ: 'ECONOMICS dimension (criteria 8, 9, 10 — funding sufficiency, token utility, tokenomics depth).\n\nTECHX weight: 0.10 (criteria 9 & 10 skipped, so this dimension is funding sufficiency alone)\nWEB3X weight: 0.20 (all three criteria scored)\n\nNudged up from 0.07 to give verified, reputable funding a real say — but funding is scored on evidence quality, not amount: a large unconfirmed round scores no higher than a bare claim, while a smaller round from a named, verified institutional investor can reach 5-6. See the Confidence Uplift section for how strong, verified funding can also help a near-threshold project cross into Promising.',
     Skill: 'SKILL & EXECUTION dimension (criteria 11, 12, 13 — team, execution, documentation).\n\nTECHX weight: 0.17\nWEB3X weight: 0.15\n\nTrimmed from 0.20 to help fund the Sales & Funding increase, while still sitting close to WEB3X\'s weighting.',
     Engagement: 'ENGAGEMENT dimension (criteria 14, 15 — community management, community engagement).\n\nTECHX weight: 0.05\nWEB3X weight: 0.10\n\nDoubled in WEB3X because community can make or break a token project. For TECHX, it\'s a smaller signal.',
-    Security: 'SECURITY & REGULATORY dimension (criteria 16, 17 — audits/technical foundation, regulatory safety).\n\nTECHX weight: 0.05\nWEB3X weight: 0.05\n\nSame in both profiles. A relatively low weight but important — security failures can sink a project regardless of how good the other dimensions look.'
+    Security: 'SECURITY & REGULATORY dimension (criteria 16, 17 — audits/technical foundation, regulatory safety).\n\nTECHX weight: 0.05\nWEB3X weight: 0.05\n\nSame in both profiles. A relatively low weight, but a verified regulatory license or licensing partnership here can also unlock the Confidence Uplift mechanism for a near-threshold project — see criterion 17\'s note.'
   },
   bands: {
     weak: 'WEAK band (0–199 points).\n\nBelow the 200 listing line. Routed to revisit — constructive feedback with a 6-month window; a scoping workshop is recommended.',
@@ -2676,7 +2703,7 @@ function extractJSON(text) {
 // already-working code as possible while fixing this specific crash.
 var VALUEX_DIM_ORDER = ['Market','Tech','Sales','Econ','Skill','Engagement','Security'];
 var VALUEX_DIM_WEIGHTS = {
-  TECHX: { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 },
+  TECHX: { Market: 0.21, Tech: 0.20, Sales: 0.22, Econ: 0.10, Skill: 0.17, Engagement: 0.05, Security: 0.05 },
   WEB3X: { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 }
 };
 var VALUEX_CRIT_TO_DIM = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
@@ -2747,6 +2774,27 @@ function normalizeEvalResult(d) {
   if (!isFiniteNum(d.total)) {
     d.total = Math.round(d.dimensions.reduce(function(a, dm){ return a + dm.contrib; }, 0) * 10) / 10;
   }
+
+  // New narrative notes (investor relevance, funding/regulatory/partnership) are
+  // display-only strings — default to empty rather than crash if Claude omits one.
+  ['investorRelevance', 'fundingNote', 'regulatoryNote', 'partnershipNote'].forEach(function(key){
+    if (typeof d[key] !== 'string') d[key] = '';
+  });
+
+  // Confidence Uplift: always normalize to a safe, fully-shaped object so the
+  // renderer never has to guess. A missing/malformed uplift object is treated
+  // as "not applied" — it must never be silently invented as applied.
+  var u = (d.uplift && typeof d.uplift === 'object') ? d.uplift : {};
+  d.uplift = {
+    eligible: !!u.eligible,
+    applied: !!u.applied,
+    baseTotal: isFiniteNum(u.baseTotal) ? u.baseTotal : null,
+    points: isFiniteNum(u.points) ? Math.round(u.points) : 0,
+    reasons: Array.isArray(u.reasons) ? u.reasons.filter(function(r){ return typeof r === 'string' && r; }).slice(0, 3) : [],
+    requiresReview: !!u.requiresReview
+  };
+  // applied implies requiresReview by policy, regardless of what was returned.
+  if (d.uplift.applied) d.uplift.requiresReview = true;
 
   return d;
 }
@@ -3332,7 +3380,7 @@ function generateMockEvaluation(meta) {
   var CONF_BY_EVI = { V: ['H','H','M'], S: ['H','M','M'], I: ['M','M','L'], C: ['L','M','L'] };
 
   var weightsByProfile = isTechx
-    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.21, Tech: 0.20, Sales: 0.22, Econ: 0.10, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
 
@@ -3455,6 +3503,11 @@ function generateMockEvaluation(meta) {
     // pasted URL would be actively misleading. Real findings only ever come
     // from the live API path in runVALUEXEvaluation().
     publicSignalImpact: [],
+    // Same non-fabrication rule as publicSignalImpact above: demo mode never
+    // invents a specific-sounding funding/regulatory/partnership claim, since
+    // that could be mistaken for a real finding about a real uploaded project.
+    investorRelevance: '', fundingNote: '', regulatoryNote: '', partnershipNote: '',
+    uplift: { eligible: false, applied: false, baseTotal: null, points: 0, reasons: [], requiresReview: false },
     competitors: buildCompetitors(meta, dimensions), includeCompetitors: true,
     next_step: nextStepMap[recommendation] || '—'
   };
@@ -3508,7 +3561,7 @@ function renderEvaluation(d) {
   if (d.sector) chipsHTML += '<span class="chip">Sector <b>' + escapeHTML(d.sector) + '</b></span>';
   if (d.stage) chipsHTML += '<span class="chip">Stage <b>' + escapeHTML(d.stage) + '</b></span>';
   chipsHTML += '<span class="chip" data-tip="' + escapeAttr('TOKEN flag determines the scoring profile.\n\nYes → WEB3X profile (criteria 9 & 10 scored, heavier weight on Economics and Engagement)\nNo → TECHX profile (criteria 9 & 10 skipped, heavier weight on Market and Skill)') + '">Token <b>' + (d.token ? 'Yes' : 'No') + '</b></span>';
-  chipsHTML += '<span class="chip profile" data-tip="' + escapeAttr('SCORING PROFILE used for this evaluation.\n\nTECHX (no token): Market 0.24 / Tech 0.20 / Sales 0.22 / Econ 0.07 / Skill 0.17 / Engagement 0.05 / Security 0.05\n\nWEB3X (token): Market 0.20 / Tech 0.20 / Sales 0.10 / Econ 0.20 / Skill 0.15 / Engagement 0.10 / Security 0.05\n\nWeights sum to 1.0 in both profiles.') + '">Profile <b>' + escapeHTML(d.profile || 'TECHX') + '</b></span>';
+  chipsHTML += '<span class="chip profile" data-tip="' + escapeAttr('SCORING PROFILE used for this evaluation.\n\nTECHX (no token): Market 0.21 / Tech 0.20 / Sales 0.22 / Econ 0.10 / Skill 0.17 / Engagement 0.05 / Security 0.05\n\nWEB3X (token): Market 0.20 / Tech 0.20 / Sales 0.10 / Econ 0.20 / Skill 0.15 / Engagement 0.10 / Security 0.05\n\nWeights sum to 1.0 in both profiles.') + '">Profile <b>' + escapeHTML(d.profile || 'TECHX') + '</b></span>';
   chipsHTML += '<span class="chip">Run <b>' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + '</b></span>';
   document.getElementById('er-chips').innerHTML = chipsHTML;
 
@@ -3773,6 +3826,8 @@ function renderEvaluation(d) {
   renderFounderCompare(d);
   renderThresholdProximity(d);
   renderRiskMatrix(d);
+  renderConfidenceUplift(d);
+  renderDiligenceNotes(d);
   renderEvidenceHeatmap(d);
   renderActionPlan(d);
   renderReportCta(d);
@@ -4024,6 +4079,82 @@ function renderFounderCompare(d) {
   box.appendChild(note);
 }
 
+// =====================================================================
+// CONFIDENCE UPLIFT — evidence-gated, capped, always logged
+// =====================================================================
+function renderConfidenceUplift(d) {
+  var card = document.getElementById('card-uplift');
+  var strip = document.getElementById('er-uplift-strip');
+  var body = document.getElementById('er-uplift-body');
+  var meta = document.getElementById('er-uplift-meta');
+  if (!card || !body) return;
+
+  var u = d.uplift || { eligible: false, applied: false, points: 0, reasons: [], baseTotal: null, requiresReview: false };
+
+  // Nothing to show at all — not in the uplift zone, no signal to log.
+  if (!u.eligible && !u.applied && (!u.reasons || !u.reasons.length)) {
+    card.style.display = 'none';
+    if (strip) strip.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+
+  var reasonsHtml = (u.reasons || []).map(function(r){
+    return '<div class="find-item L" style="border-left-color:var(--green);"><div class="find-body">' + escapeHTML(r) + '</div></div>';
+  }).join('');
+
+  if (u.applied) {
+    meta.textContent = '+' + u.points + ' pts applied · reviewer sign-off required';
+    body.innerHTML =
+      '<div class="ps-empty" style="font-style:normal;padding:0 0 12px;color:var(--text);">'
+      + 'This project fell in the uplift zone (226–240, just below the 241 Promising line) with verified strength on at least two of funding, partnerships, or regulatory status. '
+      + '<b>+' + u.points + ' points</b> applied' + (isFinite(u.baseTotal) ? ' — base score before uplift was <b>' + u.baseTotal + '/360</b>.' : '.')
+      + '</div>' + reasonsHtml
+      + '<div style="margin-top:12px;padding:9px 12px;background:rgba(192,135,21,0.10);border:1px solid rgba(192,135,21,0.3);border-radius:6px;font-size:11.5px;color:#6b4a06;">⚠ Uplift is never final on its own — confirm the underlying evidence (license register entry, investor confirmation, signed partnership term) before this project is published to Selection.</div>';
+    if (strip) {
+      strip.style.display = 'flex';
+      var ptsEl = document.getElementById('er-uplift-strip-pts'); if (ptsEl) ptsEl.textContent = '+' + u.points + ' pts';
+      var baseEl = document.getElementById('er-uplift-strip-base'); if (baseEl) baseEl.textContent = isFinite(u.baseTotal) ? u.baseTotal : '—';
+    }
+  } else if (u.eligible) {
+    meta.textContent = 'eligible, not applied';
+    body.innerHTML = '<div class="ps-empty" style="font-style:normal;color:var(--text);">In the uplift zone and structurally eligible, but the model did not find enough qualifying V/S-tier evidence on funding, partnerships, or regulatory status to apply an uplift this run.</div>';
+    if (strip) strip.style.display = 'none';
+  } else {
+    // Zone-adjacent but not eligible — still worth a one-line note, no strip.
+    meta.textContent = 'not eligible';
+    body.innerHTML = '<div class="ps-empty">Not currently eligible for Confidence Uplift — either outside the 226–240 zone, or fewer than 2 of funding/partnerships/regulatory are backed by V/S-tier evidence.</div>';
+    if (strip) strip.style.display = 'none';
+  }
+}
+
+// =====================================================================
+// INVESTOR & DILIGENCE NOTES — investor relevance, funding, regulatory,
+// partnership notes. Always rendered; each falls back to a plain dash
+// rather than disappearing, so the card layout never jumps around
+// between projects that do vs don't have a given signal.
+// =====================================================================
+function renderDiligenceNotes(d) {
+  var box = document.getElementById('er-diligence-notes');
+  if (!box) return;
+  var rows = [
+    { label: 'Investor relevance', icon: '$', text: d.investorRelevance, tip: 'Why this project matters to capital specifically — distinct from the general strengths/weaknesses list.' },
+    { label: 'Funding validation', icon: '◈', text: d.fundingNote, tip: 'Evidence quality behind criterion 8 — amount, investor reputation, verification status, recency. Feeds the Economics dimension and the Confidence Uplift check.' },
+    { label: 'Regulatory / licensing', icon: '§', text: d.regulatoryNote, tip: 'Evidence quality behind criterion 17 (and any spillover to partnerships/market access). A bare mention of a regulator never moves this on its own — only a verified license or registration does.' },
+    { label: 'Strategic partnership', icon: '⋈', text: d.partnershipNote, tip: 'Evidence quality behind criterion 6 — whether a named partnership creates real market access or revenue, not just a logo.' }
+  ];
+  box.innerHTML = rows.map(function(r){
+    var text = (r.text && r.text.trim()) ? r.text : 'No material signal reported for this project.';
+    var muted = (r.text && r.text.trim()) ? '' : ' style="color:var(--text-3);font-style:italic;"';
+    return '<div style="padding:10px 0;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start;">'
+      + '<div style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--purple);flex-shrink:0;width:20px;" data-tip="' + escapeAttr(r.tip) + '">' + r.icon + '</div>'
+      + '<div><div style="font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-3);margin-bottom:3px;">' + r.label + '</div>'
+      + '<div' + muted + '>' + escapeHTML(text) + '</div></div></div>';
+  }).join('');
+  // Remove the border under the last row.
+  box.innerHTML = box.innerHTML.replace(/border-bottom:1px solid var\(--line\);([^"]*")([^]*?)<\/div><\/div>\s*$/, 'border-bottom:none;$1$2</div></div>');
+}
+
 function renderThresholdProximity(d) {
   var box = document.getElementById('er-threshold');
   if (!box) return;
@@ -4062,7 +4193,7 @@ function renderRiskMatrix(d) {
   // Weight map
   var isTechx = (d.profile || 'TECHX') === 'TECHX';
   var weightsByDim = isTechx
-    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.21, Tech: 0.20, Sales: 0.22, Econ: 0.10, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
   var maxImpact = 0;
@@ -4174,7 +4305,7 @@ function renderActionPlan(d) {
 
   var isTechx = (d.profile || 'TECHX') === 'TECHX';
   var weightsByDim = isTechx
-    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.21, Tech: 0.20, Sales: 0.22, Econ: 0.10, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
 
@@ -4392,6 +4523,23 @@ function renderReport(p) {
   html += '      <p>' + recDesc + '</p>';
   html += '    </div>';
   html += '    <p><b>Next operational step</b>  —  ' + escapeHTML(p.next_step || '—') + '</p>';
+  if (p.uplift && p.uplift.applied) {
+    html += '    <div class="r-callout" style="border-left-color:var(--green);"><b>Confidence Uplift applied</b> — +' + p.uplift.points + ' points'
+      + (typeof p.uplift.baseTotal === 'number' ? ' (base score before uplift: ' + p.uplift.baseTotal + '/360)' : '') + ', for verified strength on '
+      + escapeHTML((p.uplift.reasons || []).join('; ')) + '. <b>Reviewer sign-off required</b> before this project is published to Selection — confirm the underlying evidence directly (licence register entry, investor confirmation, or signed partnership term) rather than relying on this scoring pass alone.</div>';
+  }
+  var diligenceRows = [
+    ['Investor relevance', p.investorRelevance],
+    ['Funding validation', p.fundingNote],
+    ['Regulatory / licensing', p.regulatoryNote],
+    ['Strategic partnership', p.partnershipNote]
+  ].filter(function(r){ return r[1] && String(r[1]).trim(); });
+  if (diligenceRows.length) {
+    html += '    <h3 style="font-family:var(--serif,Georgia,serif);font-size:15px;margin:22px 0 8px;">Investor &amp; diligence notes</h3>';
+    diligenceRows.forEach(function(r){
+      html += '    <p style="margin-bottom:8px;"><b>' + r[0] + '.</b> ' + escapeHTML(r[1]) + '</p>';
+    });
+  }
   html += '  </div>';
   html += '</div>';
 
@@ -4540,7 +4688,7 @@ function computeReportActions(p) {
   var scores = (p.scores || []).filter(function(s){ return s.score != null; });
   var isTechx = (p.profile || 'TECHX') === 'TECHX';
   var weightsByDim = isTechx
-    ? { Market: 0.24, Tech: 0.20, Sales: 0.22, Econ: 0.07, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
+    ? { Market: 0.21, Tech: 0.20, Sales: 0.22, Econ: 0.10, Skill: 0.17, Engagement: 0.05, Security: 0.05 }
     : { Market: 0.20, Tech: 0.20, Sales: 0.10, Econ: 0.20, Skill: 0.15, Engagement: 0.10, Security: 0.05 };
   var critToDim = { 1:'Market',2:'Market',3:'Market',4:'Tech',5:'Sales',6:'Sales',7:'Sales',8:'Econ',9:'Econ',10:'Econ',11:'Skill',12:'Skill',13:'Skill',14:'Engagement',15:'Engagement',16:'Security',17:'Security' };
   var ACTION_TEMPLATES = {
