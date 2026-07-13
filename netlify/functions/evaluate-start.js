@@ -91,7 +91,20 @@ export default async (req) => {
   // run), so awaiting just this dispatch keeps evaluate-start itself fast
   // while still guaranteeing the trigger request was actually sent before
   // this function's own execution context is torn down.
-  const runUrl = new URL('/.netlify/functions/evaluate-run-background', req.url).toString();
+  // FIX (root cause of the 500 "Internal Error" with zero log output on the
+  // background function's own side): req.url inside a Netlify Function is
+  // not reliably the site's public-facing origin — it can reflect an
+  // internal proxy/routing address instead (confirmed by a direct curl to
+  // the real production URL returning 202 immediately, while this
+  // function's own self-fetch, built from req.url, got a platform-level 500
+  // before ever reaching evaluate-run-background's code — hence no log line
+  // there at all). Netlify auto-injects the real public origin as
+  // process.env.URL (production/custom domain) for every function
+  // invocation; DEPLOY_PRIME_URL is the next-best fallback (deploy previews,
+  // branch deploys), and req.url's origin is now only a last resort for
+  // local `netlify dev`, where those env vars may be absent.
+  const siteOrigin = process.env.URL || process.env.DEPLOY_PRIME_URL || new URL(req.url).origin;
+  const runUrl = new URL('/.netlify/functions/evaluate-run-background', siteOrigin).toString();
   let triggerOk = false;
   let triggerDetail = '';
   try {
