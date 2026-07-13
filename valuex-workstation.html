@@ -2428,6 +2428,122 @@ async function extractPDFText(file) {
   return { text: fullText, numPages: pdf.numPages };
 }
 
+// Render every page of a PDF to a compressed JPEG image, adaptively lowering
+// quality/scale until the whole file fits within a shared byte budget. This
+// is what makes image-heavy decks (Canva/Figma/Keynote exports — the
+// overwhelming majority of real pitch decks) actually readable: pdf.js's
+// text layer misses their real content entirely (see extractPDFText above),
+// so the only reliable way to get that content to Claude is to send the
+// pages as images and let Claude read them visually, the same way a human
+// reviewer would. Unlike attaching the original PDF bytes (which can be
+// huge — investor decks routinely ship 5-40MB of embedded print-resolution
+// photography), rendering to a modest, legible resolution and re-compressing
+// means the SOURCE FILE SIZE no longer determines whether the deck gets
+// read — only page count does, and even a long deck comes in far smaller
+// than its original file once every page is a presentation-resolution JPEG
+// instead of a raw embedded photo. This function always attempts to include
+// every page; it degrades quality/resolution before it ever considers
+// dropping content, and only samples pages as a last resort for pathological
+// cases (hundreds of pages), never as the default outcome for a normal deck.
+async function renderPdfPagesAsImages(file, budget) {
+  var arrayBuffer = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  var PAGE_CAP = 60; // far above any real pitch deck; guards against pathological files (e.g. a 300-page report attached by mistake)
+  var numPages = Math.min(pdf.numPages, PAGE_CAP);
+  var truncatedPages = pdf.numPages > PAGE_CAP;
+
+  // Tiers of (scale, qualities-to-try-in-order), most legible first. The
+  // earlier version always started at the highest tier and swept downward,
+  // which meant a full re-render of every page for EACH tier it didn't fit
+  // in — on a real 20-40 page deck that's up to 4 full render passes through
+  // pdf.js's canvas renderer, which is slow enough client-side to look like
+  // the app hung. Fix: estimate the right starting tier up front from page
+  // count vs the remaining shared budget, render once, and allow at most ONE
+  // fallback re-render one tier down if that estimate was optimistic. JPEG
+  // quality within a tier is free to retry (re-encoding a canvas is cheap,
+  // it's the render that's expensive), so each tier still tries a few
+  // qualities before giving up on it.
+  var tiers = [
+    { scale: 1.35, qualities: [0.68, 0.55, 0.42] },
+    { scale: 1.05, qualities: [0.60, 0.48, 0.36] },
+    { scale: 0.85, qualities: [0.50, 0.40, 0.30] },
+    { scale: 0.65, qualities: [0.40, 0.30, 0.22] }
+  ];
+  var perPageBudget = budget.remaining / Math.max(1, numPages);
+  var startTier = perPageBudget > 220000 ? 0 : perPageBudget > 130000 ? 1 : perPageBudget > 70000 ? 2 : 3;
+
+  var pages = []; // { pageNum, canvas }
+  async function renderAtScale(scale) {
+    pages = [];
+    for (var n = 1; n <= numPages; n++) {
+      var page = await pdf.getPage(n);
+      var viewport = page.getViewport({ scale: scale });
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(viewport.width));
+      canvas.height = Math.max(1, Math.round(viewport.height));
+      var ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      pages.push({ pageNum: n, canvas: canvas });
+    }
+  }
+
+  function encodeAll(quality) {
+    return pages.map(function(p){
+      var dataUrl = p.canvas.toDataURL('image/jpeg', quality);
+      return { pageNum: p.pageNum, base64: dataUrl.split(',')[1] };
+    });
+  }
+
+  function totalB64Len(imgs) {
+    return imgs.reduce(function(sum, im){ return sum + im.base64.length; }, 0);
+  }
+
+  // At most 2 render passes total: the estimated starting tier, and — only
+  // if that genuinely doesn't fit at any of its qualities — exactly one
+  // tier down. Never sweeps all 4 tiers blindly.
+  var tierIdxsToTry = [startTier];
+  if (startTier < tiers.length - 1) tierIdxsToTry.push(startTier + 1);
+
+  var chosen = null;
+  for (var ti = 0; ti < tierIdxsToTry.length && !chosen; ti++) {
+    var tier = tiers[tierIdxsToTry[ti]];
+    await renderAtScale(tier.scale);
+    for (var qi = 0; qi < tier.qualities.length; qi++) {
+      var imgs = encodeAll(tier.qualities[qi]);
+      var size = totalB64Len(imgs);
+      if (size <= budget.remaining) { chosen = { images: imgs, size: size }; break; }
+      if (!chosen || size < chosen.size) chosen = { images: imgs, size: size };
+    }
+  }
+
+  // Absolute last resort: even at the floor tier tried, the deck doesn't fit
+  // the remaining shared budget (extremely long deck, or several other large
+  // files competing for the same run's budget). Rather than dropping it
+  // entirely — the old failure mode — keep an evenly-sampled subset of pages
+  // so most of the deck is still readable, and say exactly which pages were
+  // kept so the evidence trail stays honest.
+  var sampledNote = null;
+  if (chosen.size > budget.remaining && chosen.images.length > 4) {
+    var keepCount = Math.max(4, Math.floor(chosen.images.length * (budget.remaining / chosen.size)));
+    var kept = [];
+    var step = chosen.images.length / keepCount;
+    for (var k = 0; k < keepCount; k++) {
+      kept.push(chosen.images[Math.min(chosen.images.length - 1, Math.floor(k * step))]);
+    }
+    sampledNote = chosen.images.length + '-page deck; ' + kept.length + ' representative pages sampled to fit this run\'s shared budget (pages ' + kept.map(function(im){ return im.pageNum; }).join(', ') + ')';
+    chosen = { images: kept, size: totalB64Len(kept) };
+  }
+
+  budget.remaining = Math.max(0, budget.remaining - chosen.size);
+  return {
+    images: chosen.images,
+    numPages: pdf.numPages,
+    pagesIncluded: chosen.images.length,
+    truncatedPages: truncatedPages,
+    sampledNote: sampledNote
+  };
+}
+
 tfFileInput.addEventListener('change', async function(e){
   var f = e.target.files && e.target.files[0];
   if (!f) return;
@@ -2535,7 +2651,7 @@ var VALUEX_SYSTEM_PROMPT = [
   "1 Absent (no evidence / contradicted) · 2 Weak (unsubstantiated, real gap) · 3 Adequate (some evidence, plausible narrative — default for a good-faith submission with gaps typical of its stage) · 4 Good (clearly evidenced, on par with strong peers — also the claim-only ceiling) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class).",
   "Rules: the note must justify the exact score against this scale. Default to the generous end of a plausible range — reserve 1-2 for genuine red flags, not routine early-stage incompleteness. Reserve 5-6 for material that is genuinely well-evidenced/verified; a weak-but-plausible item (e.g. early community engagement) lands at 3, not the floor. Judge each criterion on its own relevance to this project, don't pattern-match a default number. Unsupported claim caps the score at 4 (5-6 strictly require V/S/I evidence, never C alone). Hype words alone never lift a score, but a specific, coherent, internally-consistent narrative is a positive signal even without a hard artifact. Contradictions push the score down. Pre-revenue not penalized for $0 revenue on c7; Scaling stage is. TECHX profile: criteria 9 and 10 are null (skipped).",
   "Funding sufficiency (c8) is scored on VERIFIED QUALITY, not amount: a large but unconfirmed round never scores higher than a bare claim (cap 4). A smaller round independently verified, from a named, reputable/institutional investor, appropriate to the project's stage and reasonably recent, can reach 5-6. State investor name, verification status, and recency explicitly in the note.",
-  "A file note saying 'low text yield... image-heavy... attached below as a document' means a companion PDF document block follows — read it directly and score from its actual visual content, not from the thin text summary next to it. A file note saying 'too large to attach' with no document block means that deck's content genuinely could not be read this run — treat every criterion resting mainly on it as missing evidence (evidence tier no higher than C, and add a 'missing' entry recommending a text-searchable version), never as if the deck itself were confirmed thin.",
+  "Every uploaded PDF has its actual pages attached earlier in this message as a labeled sequence of images, in page order — that is the primary source for that file; read it directly and visually, the same way a human reviewer would flip through a deck. The 'Uploaded file notes' section is only a supplementary, auto-extracted text companion and may be thin or empty for image-heavy decks — never treat thin extracted text as evidence the deck itself is thin when page images are attached. Only if a file's note explicitly says page rendering FAILED (a technical error, not a normal image-heavy deck) should you treat criteria resting mainly on that file as missing evidence (evidence tier no higher than C, with a 'missing' entry recommending a re-upload). A note saying a non-PDF file (XLSX/PPTX/DOCX) was not read is also missing evidence, not a thin-content signal — this workstation does not yet extract those formats.",
   "",
   "FORMULA (for your own reasoning only — do NOT return dimensions/total/band/recommendation, the client computes all of it deterministically from your 17 scores to remove arithmetic risk): per dimension, contribution = avg(its criterion scores) × weight × 60; total = sum of the 7 contributions, range 0-360.",
   "BANDS (for your own reasoning only): 0-199 weak → REVISIT · 200-240 weakly-promising → LIST · 241-300 promising → LIST · 301-360 top → LIST.",
@@ -3062,86 +3178,92 @@ async function runVALUEXEvaluation() {
 
   try {
     // ---- Attempt real VALUEX call ----
-    // Files are read as text first (cheap, always attempted). But pdf.js only
-    // reads a PDF's embedded TEXT layer — it has no OCR, so a deck that's
-    // mostly slide graphics/screenshots (very common: Canva, Figma, Keynote
-    // exports) can yield a small fraction of its real content as "extracted
-    // text" with zero errors, silently starving the evaluation of most of
-    // the deck. This was very likely the main driver behind "deck
-    // illegible/unreadable" showing up repeatedly and evidence tiers
-    // clustering at C (claim-only) almost everywhere: if Claude never
-    // actually sees the deck's real content, everything it scores falls back
-    // to the Typeform's self-reported text, which is claim-tier by
-    // definition. Fix: detect low text-density (chars per page) and, when
-    // size allows, ALSO send that file as a raw PDF document block — Claude
-    // reads PDFs natively/visually, so this recovers exactly the content
-    // pdf.js's text layer misses. Bounded by file size so this can't
-    // reintroduce the old oversized-payload problem.
-    var MAX_CHARS_PER_FILE = 9000;    // ~2.2k tokens per file — enough for a deck's core claims, not its full formatting
-    var MAX_TOTAL_FILE_CHARS = 16000; // leaves headroom under the 20-30k full-message cap for typeform/notes/public signals
-    var DENSITY_FLOOR = 120;          // chars/page below this = likely image-heavy, not just a terse deck
-    var MAX_RAW_PDF_BYTES = 3 * 1024 * 1024; // per-file cap for including the actual PDF bytes
+    // Every PDF now gets its pages rendered to images and attached, always —
+    // not gated behind a text-density heuristic. Previously the pipeline
+    // only extracted a PDF's embedded TEXT layer (via pdf.js, no OCR), and
+    // only fell back to attaching the raw PDF bytes when that text came back
+    // thin, AND only if the file was under a small size cap. Real investor
+    // decks (Canva/Figma/Keynote exports) are almost always mostly slide
+    // graphics with a large size from embedded photography, so they hit
+    // that size cap and were never actually read — silently starving the
+    // evaluation and producing exactly what showed up repeatedly: "the deck
+    // could not be parsed this run" baked into the summary, and evidence
+    // tiers clustering at C (claim-only) because Claude only ever saw the
+    // Typeform's self-reported text.
+    //
+    // Fix: render every page of every PDF to a JPEG at a legible resolution
+    // and re-compress it (see renderPdfPagesAsImages above). This decouples
+    // "can the deck be read" from "how large is the source file" — a 30MB
+    // deck full of print-resolution photos becomes a few MB of presentation-
+    // resolution JPEGs, comfortably inside the payload budget, while staying
+    // fully readable. The embedded text layer is still extracted too (cheap,
+    // useful as a searchable companion and for catching genuine corruption
+    // early) but is no longer what stands between "deck attached" and "deck
+    // not attached."
+    var MAX_CHARS_PER_FILE = 6000;    // per-file cap on the supplementary extracted-text companion
+    var MAX_TOTAL_FILE_CHARS = 12000; // leaves more headroom for deck page images under the payload guard
     var extractedFileSections = [];
     var totalExtractedChars = 0;
-    var rawPdfBlocks = []; // { name, base64 } — spliced into `content` after the text block
-    var rawPdfBudget = 3.2 * 1024 * 1024; // total budget across all raw-PDF inclusions this run (base64 inflates ~33%, stays well under the 4MB payload guard)
+    var deckContentBlocks = []; // text label + image blocks per PDF, in send order
+    var imageBudget = { remaining: 3.3 * 1024 * 1024 }; // shared base64-char budget for all deck page images this run — stays well under the 4MB payload guard alongside the small text portions
 
     for (var i = 0; i < uploadedFiles.length && i < 5; i++) {
       var upf = uploadedFiles[i];
       if (!upf.name.toLowerCase().endsWith('.pdf')) {
-        extractedFileSections.push('--- ' + upf.name + ' ---\n(Not a PDF — this workstation only extracts text from PDFs; the filename is passed as context, but its content is not sent.)');
+        // Financial models / audits / tokenomics docs in XLSX, PPTX or DOCX
+        // are not yet read by this workstation — the filename is passed as
+        // context but the content is not sent. This is a known, separate gap
+        // (distinct from deck reading) — flag it explicitly rather than
+        // silently scoring as if the file weren't attached at all.
+        extractedFileSections.push('--- ' + upf.name + ' ---\n(Not a PDF — this workstation currently only reads PDF content directly; the filename is passed as context but its content is not sent. Treat any criterion resting mainly on this file as missing evidence rather than assuming it was reviewed.)');
         continue;
       }
+
       var pdfText = '', numPages = 0;
       try {
         var extracted = await extractPDFText(upf);
         pdfText = extracted.text;
-        numPages = extracted.numPages || 1;
+        numPages = extracted.numPages || 0;
       } catch (exErr) {
-        console.warn('PDF extraction failed for ' + upf.name + ':', exErr);
-        pdfText = '';
+        console.warn('PDF text extraction failed for ' + upf.name + ':', exErr);
       }
-
       var trimmedLen = pdfText ? pdfText.trim().length : 0;
-      var density = numPages > 0 ? trimmedLen / numPages : trimmedLen;
-      var looksImageHeavy = trimmedLen < 30 || density < DENSITY_FLOOR;
-
-      if (looksImageHeavy && upf.size <= MAX_RAW_PDF_BYTES && rawPdfBudget > 0) {
-        toast(upf.name + ': low text yield (' + trimmedLen + ' chars/' + numPages + 'p) — attaching as a document so Claude can read it directly', 'i');
-        // Attempt to include the actual PDF so Claude can read it visually.
-        try {
-          var fr = await readFileAsBase64(upf);
-          var approxBytes = fr.base64.length * 0.75; // base64 -> raw byte estimate
-          if (approxBytes <= rawPdfBudget) {
-            rawPdfBlocks.push({ name: upf.name, base64: fr.base64 });
-            rawPdfBudget -= approxBytes;
-            extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield from automatic extraction — ' + trimmedLen + ' characters across ' + numPages + ' page(s), suggesting an image-heavy deck. The actual PDF is attached below as a document for you to read directly — use that, not this text summary, for this file.)');
-          } else {
-            extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield — ' + trimmedLen + ' characters across ' + numPages + ' page(s), likely image-heavy, and too large to attach directly this run. Note this explicitly as missing evidence — do not treat it as confirmation the deck itself is thin.)');
-          }
-        } catch (readErr) {
-          console.warn('Raw PDF read failed for ' + upf.name + ':', readErr);
-          extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield — ' + trimmedLen + ' characters across ' + numPages + ' page(s), likely image-heavy; could not attach the raw file this run. Note this explicitly as missing evidence.)');
-        }
-        continue;
-      }
-
-      if (looksImageHeavy) {
-        // Image-heavy but too large (or budget spent) to attach — same honest
-        // flag as above, just without a successful attachment attempt.
-        extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield — ' + trimmedLen + ' characters across ' + numPages + ' page(s), likely image-heavy and too large to attach this run (' + fmtSize(upf.size) + '). Note this explicitly as missing evidence — do not treat it as confirmation the deck itself is thin.)');
-        continue;
-      }
-
-      var remainingBudget = Math.max(0, MAX_TOTAL_FILE_CHARS - totalExtractedChars);
-      var perFileCap = Math.min(MAX_CHARS_PER_FILE, remainingBudget);
+      var remainingTextBudget = Math.max(0, MAX_TOTAL_FILE_CHARS - totalExtractedChars);
+      var perFileCap = Math.min(MAX_CHARS_PER_FILE, remainingTextBudget);
       var wasTruncated = pdfText.length > perFileCap;
       var slice = pdfText.slice(0, perFileCap);
       totalExtractedChars += slice.length;
-      extractedFileSections.push(
-        '--- ' + upf.name + ' (extracted text' + (wasTruncated ? ', truncated to ' + perFileCap + ' of ' + pdfText.length + ' characters' : '') + ') ---\n' + slice
-      );
-      if (totalExtractedChars >= MAX_TOTAL_FILE_CHARS) break;
+
+      // Always render and attach the actual pages as images — this is what
+      // guarantees the deck gets read regardless of file size or whether it
+      // has a usable text layer.
+      toast(upf.name + ': rendering pages for visual reading…', 'i');
+      updateLoadingSub('Rendering ' + upf.name + ' — ' + (numPages || '?') + ' page(s) — for visual reading…');
+      try {
+        var rendered = await renderPdfPagesAsImages(upf, imageBudget);
+        var label = '--- ' + upf.name + ' — ' + rendered.pagesIncluded + ' of ' + rendered.numPages + ' page(s) attached below as images, in page order'
+          + (rendered.truncatedPages ? ' (file exceeds the 60-page cap; only the first 60 pages were rendered)' : '')
+          + (rendered.sampledNote ? '; ' + rendered.sampledNote : '')
+          + '. These images are the primary source for this file — read them directly. ---';
+        deckContentBlocks.push({ type: 'text', text: label });
+        rendered.images.forEach(function(im){
+          deckContentBlocks.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: im.base64 } });
+        });
+        extractedFileSections.push(
+          '--- ' + upf.name + (trimmedLen > 0 ? ' (extracted text, supplementary only' + (wasTruncated ? ', truncated' : '') + ' — the attached page images above are the primary source)' : ' (no usable text layer — the attached page images above are the primary source)') + ' ---\n'
+          + (slice || '(no extractable text; all content is in the attached page images)')
+        );
+      } catch (renderErr) {
+        // A genuine, specific failure (corrupt file, browser out of memory,
+        // an unsupported/encrypted PDF, etc.) — surfaced loudly and tagged
+        // explicitly, never silently downgraded to "the deck could not be
+        // parsed" baked invisibly into the evaluation's own narrative.
+        console.error('Page rendering failed for ' + upf.name + ':', renderErr);
+        toast(upf.name + ': could not render pages (' + (renderErr.message || 'unknown error') + ') — falling back to extracted text only', '!');
+        extractedFileSections.push(
+          '--- ' + upf.name + ' ---\n(Page rendering failed this run — ' + (renderErr.message || 'unknown error') + '. Only the extracted text below could be used; explicitly note any criterion resting mainly on this file as missing evidence, and flag this as a technical failure to re-attempt, not as a thin or weak deck.)\n' + (slice || '(no extractable text either)')
+        );
+      }
     }
     var fileContentBlock = extractedFileSections.join('\n\n') || '(no extractable file content)';
     setLoadingStep(1);
@@ -3179,7 +3301,7 @@ async function runVALUEXEvaluation() {
       '- Weighting profile: ' + pProfile,
       '- Uploaded files: ' + meta.fileNames.join(', '),
       '',
-      'Uploaded file contents (auto-extracted text, may be truncated for large files):',
+      'Uploaded file notes (each PDF\u2019s actual pages are attached above as images \u2014 read those directly as the primary source; this is a supplementary auto-extracted text companion, may be truncated for large files):',
       fileContentBlock,
       '',
       'Typeform answers from the founder:',
@@ -3205,12 +3327,10 @@ async function runVALUEXEvaluation() {
         + '\n\n[... truncated: input exceeded ' + MAX_USER_MESSAGE_CHARS + ' characters; remaining content omitted to keep the evaluation within the server time limit ...]';
     }
 
-    // Raw PDF document blocks for decks flagged as image-heavy above — spliced
-    // in before the text block so Claude sees the actual pages, not just
-    // whatever thin text pdf.js could pull from them.
-    rawPdfBlocks.forEach(function(rb){
-      content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: rb.base64 } });
-    });
+    // Deck page images (label + images per PDF, in send order) go before the
+    // main text block so Claude sees the actual pages first, with the
+    // structured project record and extracted-text companion following.
+    deckContentBlocks.forEach(function(b){ content.push(b); });
     content.push({ type: 'text', text: userMessage });
 
     var requestBodyObj = {
@@ -3273,7 +3393,7 @@ async function runVALUEXEvaluation() {
     // the prompt/payload are, so this had to be an architecture change, not
     // another round of trimming. ----
     var POLL_INTERVAL_MS = 2500;
-    var MAX_POLL_MS = 180000; // 3 min of UI wait; the job itself may run up to 15 min server-side
+    var MAX_POLL_MS = 720000; // 12 min of UI wait — the background job can run up to 15 min server-side; was 3 min, which now regularly gave up before a vision-heavy evaluation (many deck-page images) finished
     var pollStart = Date.now();
     var job = null;
 
@@ -3660,8 +3780,12 @@ function recClassMap(rec) {
   if (rec === 'REVISIT') return 'revisit';
   return 'reject';
 }
-function recLabelMap(rec) {
-  if (rec === 'LIST') return 'List · top';
+function recLabelMap(rec, band) {
+  // Was hardcoded to 'List · top' for every LIST recommendation regardless of
+  // the project's actual band (weak/weakly-promising/promising/top) — fixed
+  // to build the label from the real computed band so it can never disagree
+  // with the band shown elsewhere in the same report (gauge, pv-band, etc.).
+  if (rec === 'LIST') return 'List · ' + (vxBandLabel(band) || '—').toLowerCase();
   if (rec === 'BORDERLINE') return 'Borderline · review';
   if (rec === 'REVISIT') return 'Revisit later';
   return 'Not a fit';
@@ -3702,7 +3826,7 @@ function renderEvaluation(d) {
      '')
   );
   document.getElementById('er-rec').innerHTML =
-    '<span class="rec-pill ' + recClassMap(d.recommendation) + '" data-tip="' + recTip + '">' + recLabelMap(d.recommendation) + '</span>';
+    '<span class="rec-pill ' + recClassMap(d.recommendation) + '" data-tip="' + recTip + '">' + recLabelMap(d.recommendation, d.band) + '</span>';
 
   // gauge
   var ratio = Math.max(0, Math.min(1, total / 360));
@@ -4114,21 +4238,43 @@ function renderRadar(d) {
       dimSums[dn] = (dimSums[dn] || 0) + founderScores[c];
       dimCounts[dn] = (dimCounts[dn] || 0) + 1;
     });
-    var founderValues = dims.map(function(x){
-      if (!dimCounts[x.name]) return 0;
-      var avg = dimSums[x.name] / dimCounts[x.name];
-      return Math.max(0, Math.min(1, avg / 6));
+    // Dimensions where the founder never gave a numeric self-rating (e.g.
+    // Econ/funding sufficiency, which VALUEX assesses from external
+    // verification rather than asking the founder to self-score) have no
+    // entry in dimCounts. That means NO founder data — not a founder score
+    // of zero, and not something to silently coincide with VALUEX's number
+    // either (that reads as a real, matching data point when it isn't one).
+    // Instead, skip that axis from the founder polygon entirely — the
+    // polygon draws a straight edge directly between its two real
+    // neighbors, a standard, honest way to show "no data here" — and mark
+    // the axis with a distinct dashed "N/A" ring just outside the data area
+    // so the absence is explicit rather than invisible or misread as zero.
+    var founderHasData = dims.map(function(x){ return !!dimCounts[x.name]; });
+    var founderValuesByIdx = {};
+    dims.forEach(function(x, idx){
+      if (dimCounts[x.name]) {
+        founderValuesByIdx[idx] = Math.max(0, Math.min(1, (dimSums[x.name] / dimCounts[x.name]) / 6));
+      }
     });
     var fp = '';
     for (var i = 0; i < n; i++) {
-      var p = pt(i, R * founderValues[i]);
+      if (founderValuesByIdx[i] == null) continue; // no founder data for this axis — leave it out of the polygon
+      var p = pt(i, R * founderValuesByIdx[i]);
       fp += p[0].toFixed(1) + ',' + p[1].toFixed(1) + ' ';
-      var titleF = labels[i] + ' (Founder self-assessment)\nAvg score: ' + (founderValues[i] * 6).toFixed(2) + ' / 6';
+      var titleF = labels[i] + ' (Founder self-assessment)\nAvg score: ' + (founderValuesByIdx[i] * 6).toFixed(2) + ' / 6';
       founderDots += '<g><title>' + String(titleF).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</title>'
                   + '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#c68346" stroke="#fff" stroke-width="1" style="cursor:help;"/></g>';
     }
-    founderPoly = '<polygon points="'+fp+'" fill="#c68346" fill-opacity="0.15" stroke="#c68346" stroke-width="1.5" stroke-dasharray="4 3"/>';
-    document.getElementById('er-radar-meta').innerHTML = '<span style="display:inline-block;width:10px;height:3px;background:#9275af;margin-right:4px;vertical-align:middle;"></span>VALUEX  &nbsp; <span style="display:inline-block;width:10px;height:3px;background:#c68346;margin-right:4px;vertical-align:middle;"></span>Founder';
+    for (var i3 = 0; i3 < n; i3++) {
+      if (founderValuesByIdx[i3] != null) continue;
+      var pn = pt(i3, R + 6);
+      var titleNA = String(labels[i3] + ' \u2014 no founder self-assessment for this dimension (VALUEX assesses it from external evidence, not a Typeform self-score).').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      founderDots += '<g><title>' + titleNA + '</title>'
+                   + '<circle cx="'+pn[0].toFixed(1)+'" cy="'+pn[1].toFixed(1)+'" r="6.5" fill="#fff" stroke="#c68346" stroke-width="1" stroke-dasharray="2 1.5" style="cursor:help;"/>'
+                   + '<text x="'+pn[0].toFixed(1)+'" y="'+(pn[1]+2.5).toFixed(1)+'" text-anchor="middle" font-family="JetBrains Mono" font-size="6.5" fill="#c68346" font-weight="700">N/A</text></g>';
+    }
+    founderPoly = fp ? '<polygon points="'+fp+'" fill="#c68346" fill-opacity="0.15" stroke="#c68346" stroke-width="1.5" stroke-dasharray="4 3"/>' : '';
+    document.getElementById('er-radar-meta').innerHTML = '<span style="display:inline-block;width:10px;height:3px;background:#9275af;margin-right:4px;vertical-align:middle;"></span>VALUEX  &nbsp; <span style="display:inline-block;width:10px;height:3px;background:#c68346;margin-right:4px;vertical-align:middle;"></span>Founder' + (founderHasData.indexOf(false) >= 0 ? ' <span style="opacity:0.6;">&nbsp;·&nbsp;N/A = no founder self-assessment for that axis</span>' : '');
   } else {
     document.getElementById('er-radar-meta').innerHTML = 'avg score / 6 per dimension';
   }
@@ -5559,7 +5705,7 @@ function renderProfile(p) {
   var fitScore = Math.min(100, Math.round(((sc/360) * 0.7 + (conf/100) * 0.3) * 100));
   document.getElementById('pv-fit-num').textContent = fitScore;
   document.getElementById('pv-fit-circle').setAttribute('stroke-dasharray', fitScore + ' ' + (100-fitScore));
-  document.getElementById('pv-rec-label').textContent = p.recommendation === 'LIST' ? 'List · top tier' : p.recommendation === 'BORDERLINE' ? 'Borderline · review' : p.recommendation === 'REVISIT' ? 'Revisit later' : 'Not a fit';
+  document.getElementById('pv-rec-label').textContent = recLabelMap(p.recommendation, bandCls);
   document.getElementById('pv-rec-desc').textContent = p.next_step || '—';
 
   // Pillar radar + bars
