@@ -11,20 +11,20 @@
 //    read-after-write race, and only surfaces it as an error once the
 //    overall client-side poll timeout is reached).
 //
-// FIX (this version): added a stale-job watchdog. Previously, if
-// evaluate-run-background.js never got the chance to write anything past
-// evaluate-start.js's initial 'pending' record — for any reason, including
-// ones neither of those two files' own error handling anticipated — this
-// endpoint would just keep faithfully returning 'pending' forever, HTTP 200
-// every time, with nothing to indicate anything was wrong. That matches
-// exactly what was reported: "all status requests return 200" while the
-// job never progresses. Now, if a job has been sitting at 'pending' or
-// 'running' longer than STALE_MS, this endpoint synthesizes a 'failed'
-// status (and persists it, so subsequent polls see the same terminal
-// state) instead of reporting business-as-usual forever. This check only
-// depends on the 'pending' record evaluate-start.js already wrote
-// successfully, so it works as a backstop even if the background worker
-// never ran at all.
+// NOTE: job records can now include a `request` field while pending/running
+// — the full stored Anthropic request, potentially several MB with deck-
+// page images (see evaluate-start.js / evaluate-run-background.js). The
+// browser never needs that field, so it is stripped out of every response
+// here — polling every ~2.5s shouldn't repeatedly ship multi-MB payloads
+// back down for no reason.
+//
+// Also includes a stale-job watchdog: if a job has been sitting at
+// 'pending' or 'running' longer than STALE_MS, this endpoint synthesizes a
+// 'failed' status (and persists it, so subsequent polls see the same
+// terminal state) instead of reporting business-as-usual forever. This
+// check only depends on the 'pending' record evaluate-start.js already
+// wrote successfully, so it works as a backstop even if the background
+// worker never ran at all.
 
 import { getStore } from '@netlify/blobs';
 
@@ -96,7 +96,11 @@ export default async (req) => {
     }
   }
 
-  return new Response(JSON.stringify(job), {
+  // Never echo the stored evaluation request back to the client — it's
+  // irrelevant to the browser and can be several MB with deck-page images.
+  const { request, ...clientJob } = job;
+
+  return new Response(JSON.stringify(clientJob), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors },
   });
