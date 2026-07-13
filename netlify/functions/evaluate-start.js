@@ -1,38 +1,31 @@
 // netlify/functions/evaluate-start.js
 //
-// Entry point for the main VALUEX evaluation. Deliberately does almost no
-// work itself so it can never time out:
-//   1. Validates and stores the already-built Anthropic request (model,
-//      system prompt, messages) as a job record in Netlify Blobs.
-//   2. Fires a request at evaluate-run-background.js (a Netlify Background
-//      Function) to do the actual, potentially slow Anthropic call.
-//   3. Returns { jobId } immediately.
+// Entry point for the main VALUEX evaluation.
 //
-// Why this exists: Netlify's standard (synchronous) functions are capped at
-// roughly 10-30s depending on plan. Claude generating a full 17-criterion
-// scored JSON routinely takes longer than that — trimming the prompt and
-// payload (done in earlier iterations of this file) reduced but did not
-// reliably eliminate 504s, because the bottleneck is generation time, not
-// request size. Background Functions have a 15-minute execution limit,
-// which comfortably covers it. The browser polls evaluate-status.js
-// (separate file) for the result using the jobId returned here.
+// ARCHITECTURE (this version): the full Anthropic request (system prompt,
+// messages, tools — including any base64-encoded deck-page images) is now
+// stored directly in the job's Netlify Blobs record, NOT sent in the POST
+// body that triggers the background worker. That trigger POST now carries
+// only { jobId } — a few dozen bytes, always.
 //
-// FIX (this version): a bad response from the trigger call — anything other
-// than 202/2xx, e.g. a 404 because evaluate-run-background isn't deployed
-// at the expected path, or a 500 from the platform rejecting the async
-// invocation outright — was previously only logged with console.error and
-// otherwise ignored: the function still returned { jobId } as if
-// everything were fine, and the job record (already written as 'pending')
-// was never touched again. That is the exact bug behind jobs staying stuck
-// at 'pending' forever with no error ever surfacing anywhere the browser or
-// a person could see it. Now any non-2xx/202 trigger response — or a
-// network-level failure reaching it at all — flips the job to 'failed'
-// immediately, with the actual response detail included, before this
-// function returns.
+// Why: Netlify Background Functions are invoked through AWS Lambda's
+// asynchronous ("Event") invocation type under the hood, which has a hard
+// 256 KB request-payload limit — separate from, and far smaller than, the
+// ~6 MB limit on ordinary synchronous Lambda/API Gateway requests. A real
+// VALUEX evaluation's request (deck-page images, full system prompt,
+// tools) routinely runs from several hundred KB into multiple MB, so every
+// real trigger attempt was rejected at Netlify's platform routing layer
+// BEFORE ever reaching evaluate-run-background's code — which is exactly
+// why that function's own logs showed nothing at all, not even a
+// Duration/Memory line, while a tiny hand-typed curl body got a normal 202.
+// Passing only jobId keeps the trigger payload trivially small regardless
+// of how large the actual evaluation request is; evaluate-run-background
+// now reads the real request back out of Blobs by jobId instead, where
+// there is no such size limit.
 //
-// One-time setup: no additional env vars beyond what evaluate.js already
-// needs (ANTHROPIC_API_KEY, read by evaluate-run-background.js, not this
-// file). Netlify Blobs needs zero provisioning, same as projects.js.
+// One-time setup: no additional env vars beyond what evaluate-run-
+// background.js already needs (ANTHROPIC_API_KEY). Netlify Blobs needs zero
+// provisioning, same as before.
 
 import { getStore } from '@netlify/blobs';
 
@@ -73,11 +66,24 @@ export default async (req) => {
     });
   }
 
+  // Temporary — confirms exactly how large real evaluation requests are
+  // (deck-page images included), for context on why the 256 KB background-
+  // trigger limit was being hit. Safe to remove once confirmed in logs.
+  const serializedRequest = JSON.stringify(body);
+  console.log('Evaluation request bytes:', new TextEncoder().encode(serializedRequest).length);
+
   const jobId = makeJobId();
   const store = getStore({ name: JOB_STORE, consistency: 'strong' });
 
   try {
-    await store.setJSON(jobId, { status: 'pending', createdAt: new Date().toISOString() });
+    // The full request (including any deck-page images) lives here now —
+    // never in the trigger POST below. evaluate-run-background reads it
+    // back out by jobId, where Blobs storage has no comparable size limit.
+    await store.setJSON(jobId, {
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      request: body,
+    });
   } catch (err) {
     console.error('evaluate-start: could not create job record:', err);
     return new Response(JSON.stringify({ error: 'Could not create evaluation job (storage write failed)' }), {
@@ -86,36 +92,29 @@ export default async (req) => {
     });
   }
 
-  // Trigger the background worker. Hitting a Background Function returns a
-  // 202 almost instantly (Netlify answers before the handler body has even
-  // run), so awaiting just this dispatch keeps evaluate-start itself fast
-  // while still guaranteeing the trigger request was actually sent before
-  // this function's own execution context is torn down.
-  // FIX v2 — process.env.URL turned out to be the wrong origin too, just for
-  // a different reason than req.url: it resolves to this site's configured
-  // custom domain, valuex.at, which now points at Framer (the public
-  // marketing site), not at this Netlify site's functions. Neither req.url
-  // nor process.env.URL can be trusted here, so the trigger now targets the
-  // exact Netlify subdomain confirmed working via direct curl (HTTP 202).
-  // NETLIFY_FUNCTION_ORIGIN is an optional override (e.g. if this site's
-  // Netlify subdomain ever changes) — unset by default, falling back to the
-  // known-good hardcoded origin below.
+  // Trigger the background worker with ONLY the jobId — see the file header
+  // for why the full request must never go in this POST body. The target
+  // origin is hardcoded to the confirmed-working Netlify subdomain rather
+  // than derived from req.url or process.env.URL: req.url's origin inside a
+  // Netlify Function can be an internal routing address, and process.env.URL
+  // resolves to this site's custom domain (valuex.at), which is currently
+  // pointed at Framer, not this Netlify site — neither reliably reaches
+  // evaluate-run-background. NETLIFY_FUNCTION_ORIGIN is an optional
+  // override (e.g. if the Netlify subdomain ever changes).
   const functionOrigin = process.env.NETLIFY_FUNCTION_ORIGIN || 'https://valuex-websitecom.netlify.app';
   const runUrl = functionOrigin + '/.netlify/functions/evaluate-run-background';
-  console.log('Background trigger URL:', runUrl); // temporary — remove once confirmed working
+  console.log('Background trigger URL:', runUrl); // temporary — safe to remove once confirmed working
+
   let triggerOk = false;
   let triggerDetail = '';
   try {
     const triggerResp = await fetch(runUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jobId, request: body }),
+      body: JSON.stringify({ jobId }),
     });
     // 202 (or any 2xx) means the platform accepted the async invocation —
     // it does NOT mean the worker will succeed, only that it was started.
-    // Anything else (404 = wrong path / not deployed as expected, 401/403 =
-    // access issue, 500 = platform-level rejection) means the worker was
-    // never actually started, and the job must not be left looking healthy.
     if (triggerResp.status === 202 || triggerResp.ok) {
       triggerOk = true;
     } else {
