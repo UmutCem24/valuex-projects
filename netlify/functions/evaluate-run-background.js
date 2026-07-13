@@ -20,11 +20,25 @@
 // guaranteed to run in background mode regardless of which mechanism this
 // site's build actually honors.
 //
+// FIX (this version): everything is now inside ONE try/catch that starts on
+// the very first line. Previously `getStore()` and `let jobId = null` sat
+// OUTSIDE the try block — if getStore() threw for any reason, the whole
+// invocation crashed with an unhandled exception before any of this file's
+// own error-handling ever ran. Netlify retries a failed background
+// invocation twice (after 1 minute, then 2 more), and if every attempt
+// fails the same way before reaching a single store.setJSON call, the job
+// record is never touched again after evaluate-start.js's initial
+// 'pending' write. That matches the reported symptom exactly: permanently
+// 'pending', never 'running', never 'failed'. jobId is now also read as
+// early as possible inside the try block, and getStore() has an explicit
+// siteID/token fallback in case a background invocation's context ever
+// differs from a synchronous one's auto-configured environment.
+//
 // THINKING: Claude Sonnet 5 defaults to adaptive thinking ON (effort:
 // "high") whenever a request omits the 'thinking' field — this is a
 // behavior change from earlier Sonnet models, where omitting it meant no
 // thinking. Thinking tokens count against max_tokens like any other output
-// token. That's exactly what broke the first version of this file: with no
+// token. That's exactly what broke an earlier version of this file: with no
 // 'thinking' field set, Claude spent the entire max_tokens budget thinking
 // and stop_reason came back "max_tokens" with a thinking block and no text
 // block at all — VALUEX had nothing to parse. Fixed below by explicitly
@@ -45,11 +59,35 @@ const DEFAULT_MODEL = 'claude-sonnet-5';
 // itself now that thinking is disabled and no longer competes for the budget.
 const MIN_MAX_TOKENS = 3000;
 
-export default async (req) => {
-  const store = getStore({ name: JOB_STORE, consistency: 'strong' });
+export default async (req, context) => {
+  // Everything from here down is inside one try/catch — see the FIX note
+  // above. jobId and store are declared here (outside the try) only so the
+  // catch block can still see whatever was actually assigned before the
+  // failure, not because any code that can throw runs before the try.
   let jobId = null;
+  let store = null;
 
   try {
+    // getStore() first, defensively. The auto-configured form (no siteID/
+    // token needed) is what Netlify's docs describe as working for both
+    // regular and background functions — but if it ever throws in this
+    // invocation context, fall back to an explicit siteID (from the
+    // Context object Netlify passes as the second handler argument, or from
+    // environment variables) rather than letting the whole function die
+    // before it can report anything.
+    try {
+      store = getStore({ name: JOB_STORE, consistency: 'strong' });
+    } catch (storeErr) {
+      console.error('evaluate-run-background: default getStore() failed, trying explicit siteID fallback:', storeErr);
+      const siteID = (context && context.site && context.site.id) || process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+      const token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
+      if (siteID && token) {
+        store = getStore({ name: JOB_STORE, consistency: 'strong', siteID, token });
+      } else {
+        throw storeErr; // no fallback credentials available — let the outer catch handle it
+      }
+    }
+
     const body = await req.json();
     jobId = body && body.jobId;
     const reqPayload = (body && body.request) || {};
@@ -169,12 +207,18 @@ export default async (req) => {
     console.error('evaluate-run-background: unhandled error:', err);
     if (jobId) {
       try {
-        await store.setJSON(jobId, {
+        // Reuse `store` if it was already assigned; otherwise make one last
+        // attempt to construct a fresh one, in case the failure happened
+        // before `store` was ever set.
+        const s = store || getStore({ name: JOB_STORE, consistency: 'strong' });
+        await s.setJSON(jobId, {
           status: 'failed',
           error: (err && err.message) || 'Unknown background evaluation error',
           failedAt: new Date().toISOString(),
         });
-      } catch (e2) { /* nothing more we can do */ }
+      } catch (e2) {
+        console.error('evaluate-run-background: also failed to write the failed status:', e2);
+      }
     }
   }
 };
