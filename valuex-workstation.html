@@ -2415,7 +2415,17 @@ async function extractPDFText(file) {
     ys.forEach(function(y){ fullText += lines[y].join(' ') + '\n'; });
     fullText += '\n';
   }
-  return fullText;
+  // numPages is returned alongside the text (not just the text) so callers
+  // can compute a chars-per-page density and catch the case pdf.js can't
+  // warn about on its own: a PDF that isn't blank, but is mostly slide
+  // graphics/screenshots with only a little real text per page — a very
+  // common shape for pitch decks (Canva/Figma/Keynote exports). pdf.js only
+  // reads the embedded text layer; it has no OCR, so this kind of deck
+  // silently yields a small fraction of its real content as "extracted
+  // text" with no error at all, which then gets scored as if the deck were
+  // genuinely thin rather than just unreadable by this pipeline. Recognizing
+  // that up front is what runVALUEXEvaluation() below acts on.
+  return { text: fullText, numPages: pdf.numPages };
 }
 
 tfFileInput.addEventListener('change', async function(e){
@@ -2425,7 +2435,8 @@ tfFileInput.addEventListener('change', async function(e){
   try {
     if (name.endsWith('.pdf')) {
       toast('Extracting PDF text…', 'i');
-      var text = await extractPDFText(f);
+      var extracted = await extractPDFText(f);
+      var text = extracted.text;
       if (!text || text.length < 30) {
         toast('PDF appears to be empty or scanned (no extractable text)', '!');
       } else {
@@ -2524,23 +2535,24 @@ var VALUEX_SYSTEM_PROMPT = [
   "1 Absent (no evidence / contradicted) · 2 Weak (unsubstantiated, real gap) · 3 Adequate (some evidence, plausible narrative — default for a good-faith submission with gaps typical of its stage) · 4 Good (clearly evidenced, on par with strong peers — also the claim-only ceiling) · 5 Strong (well-evidenced, above peers) · 6 Excellent (verified, best-in-class).",
   "Rules: the note must justify the exact score against this scale. Default to the generous end of a plausible range — reserve 1-2 for genuine red flags, not routine early-stage incompleteness. Reserve 5-6 for material that is genuinely well-evidenced/verified; a weak-but-plausible item (e.g. early community engagement) lands at 3, not the floor. Judge each criterion on its own relevance to this project, don't pattern-match a default number. Unsupported claim caps the score at 4 (5-6 strictly require V/S/I evidence, never C alone). Hype words alone never lift a score, but a specific, coherent, internally-consistent narrative is a positive signal even without a hard artifact. Contradictions push the score down. Pre-revenue not penalized for $0 revenue on c7; Scaling stage is. TECHX profile: criteria 9 and 10 are null (skipped).",
   "Funding sufficiency (c8) is scored on VERIFIED QUALITY, not amount: a large but unconfirmed round never scores higher than a bare claim (cap 4). A smaller round independently verified, from a named, reputable/institutional investor, appropriate to the project's stage and reasonably recent, can reach 5-6. State investor name, verification status, and recency explicitly in the note.",
+  "A file note saying 'low text yield... image-heavy... attached below as a document' means a companion PDF document block follows — read it directly and score from its actual visual content, not from the thin text summary next to it. A file note saying 'too large to attach' with no document block means that deck's content genuinely could not be read this run — treat every criterion resting mainly on it as missing evidence (evidence tier no higher than C, and add a 'missing' entry recommending a text-searchable version), never as if the deck itself were confirmed thin.",
   "",
-  "FORMULA: per dimension, contribution = avg(its criterion scores) × weight × 60. Total = sum of the 7 contributions, range 0-360.",
-  "BANDS: 0-199 weak → REVISIT · 200-240 weakly-promising → LIST · 241-300 promising → LIST · 301-360 top → LIST. (Apply to the POST-uplift total if a Confidence Uplift below is applied.)",
+  "FORMULA (for your own reasoning only — do NOT return dimensions/total/band/recommendation, the client computes all of it deterministically from your 17 scores to remove arithmetic risk): per dimension, contribution = avg(its criterion scores) × weight × 60; total = sum of the 7 contributions, range 0-360.",
+  "BANDS (for your own reasoning only): 0-199 weak → REVISIT · 200-240 weakly-promising → LIST · 241-300 promising → LIST · 301-360 top → LIST.",
   "",
   "EVIDENCE TIERS: V Verified (externally checkable — audit, named investor, on-chain data, filing) · S Supported (uploaded artifact backs the claim) · I Inferred (plausible from adjacent signals) · C Founder Claim (asserted only, no artifact).",
   "",
   "REGULATORY & LICENSING SIGNAL (cross-cutting, evidence-gated, never automatic): a verified regulatory license/registration (e.g. FINMA or another reputable regulator) or a verified licensing-as-a-service / licensing partnership can lift the criteria it genuinely touches — typically c17 (regulatory safety), often c6 (partnerships), and sometimes c1/c3/c5/c7/c8/c11/c12 if the license or partnership demonstrably unlocks market access, revenue, or execution capacity. This ONLY applies at V or S evidence tier — a verifiable register entry, license number/status, or a specific named commercial term of the partnership. A bare mention of a regulator or partner name with no such backing stays evidence tier C and MUST NOT move any score. Never infer commercial value from a name alone.",
   "",
-  "CONFIDENCE UPLIFT (evidence-gated, capped, always fully logged — never invent points, never use to paper over weak evidence): only evaluate when the pre-uplift total falls in the uplift zone 226-240 (just below the 241 Promising line). Eligible only if at least 2 of {c6 partnerships, c8 funding, c17 regulatory} are scored at V or S tier AND there is no unresolved high-severity contradiction. If eligible, award +3 to +6 points per qualifying criterion among those three (integer, proportional to evidence strength), capped at +15 total — enough to cross into Promising, never enough to reach Top on uplift alone. List every criterion and reason used. If not in zone or not eligible, return the null/false shape shown in the JSON spec below — do not omit the field.",
+  "CONFIDENCE UPLIFT: the client computes eligibility and points deterministically from your c6/c8/c17 evidence tiers and the contradictions you report — you don't need to compute or return it. Just score c6/c8/c17 honestly on the evidence.",
   "",
-  "PUBLIC SIGNALS (optional, supplementary, never a replacement for the deck/Typeform): the record may include reviewer-pasted links and/or a reviewer's pre-scan findings as plain text — this call has no live web_search, so use only what's given, never guess at an unreachable page. A signal may move a score ONLY if it is dated/recent AND specific (names, numbers, a named source) AND checkable — vague marketing language must never move a score in either direction. Tier every used signal V/S/I (a public signal alone never justifies C). scoreDelta = integer point shift on that criterion's own 1-6 scale versus deck/Typeform alone — typically ±1, rarely ±2, 0 only for confirmed_existing (reinforces an already-adequate score). If nothing usable was provided, leave publicSignalImpact empty.",
+  "COMPETITOR RESEARCH (uses web_search — REQUIRED, do not skip): identify 3-4 REAL, currently operating named companies that genuinely compete with this project in its specific sector/niche — never a generic archetype like 'category incumbent' with no name attached. Run at least 2-3 searches (the project's sector + 'competitors', the project's specific niche, named companies mentioned in the project's own materials) before writing the competitors field. For each real competitor, give one specific, concrete edge this project has (tied to an actual scored criterion, e.g. 'stronger technical depth per c4' not a generic phrase) and one specific edge the competitor has (their funding, scale, or track record — something checkable, not a vague archetype label). If web_search is unavailable in this environment, or turns up nothing specific, name the most obviously relevant real companies from general knowledge of the sector rather than inventing generic categories — but never fabricate a competitor that doesn't actually exist.",
+  "",
+  "PUBLIC SIGNALS (optional, supplementary, never a replacement for the deck/Typeform): the record may include reviewer-pasted links and/or a reviewer's pre-scan findings as plain text. A signal may move a score ONLY if it is dated/recent AND specific (names, numbers, a named source) AND checkable — vague marketing language must never move a score in either direction. Tier every used signal V/S/I (a public signal alone never justifies C). scoreDelta = integer point shift on that criterion's own 1-6 scale versus deck/Typeform alone — typically ±1, rarely ±2, 0 only for confirmed_existing (reinforces an already-adequate score). If nothing usable was provided, leave publicSignalImpact empty.",
   "",
   "Return ONLY one compact JSON object — no prose, no markdown fence — matching this shape exactly:",
   '{"name":"string","sector":"string","stage":"string","token":bool,"profile":"TECHX"|"WEB3X","summary":"2-3 sentence neutral summary",',
   '"scores":[{"id":1-17,"score":1-6|null,"conf":"L"|"M"|"H","evi":"V"|"S"|"I"|"C","note":"<=10 word rationale for the exact score"}, ...17 entries],',
-  '"dimensions":[{"name":"Market","sum":num,"weight":num,"contrib":num}, {Tech}, {Sales}, {Econ}, {Skill}, {Engagement}, {Security}],',
-  '"total":num,"band":"weak"|"weakly-promising"|"promising"|"top","recommendation":"LIST"|"REVISIT",',
   '"strengths":["<=12 word strength" * up to 4],"weaknesses":["<=12 word weakness" * up to 4],',
   '"contradictions":[{"sev":"H"|"M"|"L","desc":"<=14 words","src":"source A <-> source B"} * up to 3],',
   '"missing":[{"sev":"H"|"M"|"L","crit":num,"desc":"<=12 words"} * up to 3],',
@@ -2549,7 +2561,7 @@ var VALUEX_SYSTEM_PROMPT = [
   '"fundingNote":"<=28 words on funding evidence: amount, investor reputation, verification status, recency — or \'No material funding signal\' if none",',
   '"regulatoryNote":"<=28 words on regulatory/licensing status and its commercial implication — or \'No material regulatory/licensing signal\' if none",',
   '"partnershipNote":"<=28 words on strategic/licensing partnership value — or \'No material partnership signal\' if none",',
-  '"uplift":{"eligible":bool,"applied":bool,"baseTotal":num|null,"points":int,"reasons":["<=14 words tied to one of c6/c8/c17 and its evidence tier" * up to 3],"requiresReview":bool},',
+  '"competitors":[{"name":"real company name","type":"<=6 word positioning, e.g. \'funded challenger\', \'category incumbent\'","theirEdge":"<=16 words, specific and checkable","ourEdge":"<=16 words, tied to a specific scored criterion"} * 3-4],',
   '"next_step":"one sentence operational next step"}'
 ].join("\n");
 
@@ -2745,6 +2757,50 @@ function recomputeDimensionsFromScores(scores, profile) {
 // when the scores themselves are too incomplete to recover from (a
 // genuinely unusable response), which the caller treats as a clear,
 // non-demo failure rather than attempting to render broken data.
+function vxRecommendationFromBand(band) {
+  return band === 'weak' ? 'REVISIT' : 'LIST';
+}
+
+// Deterministic Confidence Uplift check — see VALUEX_SYSTEM_PROMPT's
+// "CONFIDENCE UPLIFT" section for the policy this implements. Computed here,
+// in JS, from data Claude only needs to judge (evidence tiers, contradiction
+// severity) rather than compute (arithmetic) — the same fix applied to
+// dimensions/total below, for the same reason: LLM arithmetic on this kind
+// of conditional, capped rule is exactly the kind of thing that should never
+// be trusted when a deterministic recomputation is this cheap.
+function computeUpliftFromScores(scores, dimensions, contradictions, baseTotal) {
+  var out = { eligible: false, applied: false, baseTotal: Math.round(baseTotal * 10) / 10, points: 0, reasons: [], requiresReview: false };
+  if (baseTotal < 226 || baseTotal > 240) return out; // not in the uplift zone at all
+
+  var hasHighContra = (contradictions || []).some(function(c){ return c && c.sev === 'H'; });
+  if (hasHighContra) return out;
+
+  var byId = {}; (scores || []).forEach(function(s){ if (s) byId[s.id] = s; });
+  var QUALIFYING = [
+    { id: 6, label: 'Partnerships' },
+    { id: 8, label: 'Funding' },
+    { id: 17, label: 'Regulatory' }
+  ];
+  var qualifying = QUALIFYING.map(function(q){
+    var s = byId[q.id];
+    var tier = s ? s.evi : null;
+    var pts = tier === 'V' ? 6 : (tier === 'S' ? 4 : 0);
+    return { id: q.id, label: q.label, tier: tier, pts: pts, note: s ? s.note : '' };
+  }).filter(function(q){ return q.pts > 0; });
+
+  out.eligible = qualifying.length >= 2;
+  if (!out.eligible) return out;
+
+  var totalPts = Math.min(15, qualifying.reduce(function(a, q){ return a + q.pts; }, 0));
+  out.applied = true;
+  out.points = totalPts;
+  out.requiresReview = true;
+  out.reasons = qualifying.map(function(q){
+    return 'C' + q.id + ' ' + q.label.toLowerCase() + ' — ' + (q.tier === 'V' ? 'verified' : 'supported') + ' evidence' + (q.note ? ' (' + q.note + ')' : '');
+  });
+  return out;
+}
+
 function normalizeEvalResult(d) {
   d = d || {};
 
@@ -2753,27 +2809,24 @@ function normalizeEvalResult(d) {
   }
 
   var profile = (d.profile === 'WEB3X') ? 'WEB3X' : 'TECHX';
-  var weights = VALUEX_DIM_WEIGHTS[profile];
+
+  // Dimensions, total, band, and recommendation are now ALWAYS computed here,
+  // directly from the 17 validated criterion scores and the fixed per-profile
+  // weights — never read from Claude's own dimensions/total/band/
+  // recommendation fields, even if present and numeric. This is a direct fix
+  // for a real bug: Claude was observed computing a dimension's contribution
+  // as SUM(criterion scores) x weight x 60 instead of AVG(...) x weight x 60
+  // on some multi-criterion dimensions but not others in the same response
+  // (e.g. Sales/Skill/Security/Engagement inflated 2-3x while Market was
+  // correct) — inconsistent LLM arithmetic that no amount of prompt wording
+  // can fully guarantee against. The 17 individual scores are the one place
+  // genuine judgement is required; everything derived from them is plain
+  // arithmetic and is now done exactly the same way, in JS, every single time.
   var recomputed = recomputeDimensionsFromScores(d.scores, profile);
-
-  var byName = {};
-  (Array.isArray(d.dimensions) ? d.dimensions : []).forEach(function(dim){
-    if (dim && dim.name) byName[dim.name] = dim;
-  });
-
-  d.dimensions = VALUEX_DIM_ORDER.map(function(dn){
-    var claude = byName[dn] || {};
-    var fallback = recomputed[dn];
-    var weight = isFiniteNum(claude.weight) ? claude.weight : weights[dn];
-    var contrib = isFiniteNum(claude.contrib) ? claude.contrib : fallback.contrib;
-    var avg = isFiniteNum(claude.avg) ? claude.avg : (weight > 0 ? contrib / (weight * 60) : fallback.avg);
-    var sum = isFiniteNum(claude.sum) ? claude.sum : fallback.sum;
-    return { name: dn, sum: sum, weight: weight, avg: Math.round(avg * 100) / 100, contrib: Math.round(contrib * 10) / 10 };
-  });
-
-  if (!isFiniteNum(d.total)) {
-    d.total = Math.round(d.dimensions.reduce(function(a, dm){ return a + dm.contrib; }, 0) * 10) / 10;
-  }
+  d.dimensions = VALUEX_DIM_ORDER.map(function(dn){ return recomputed[dn]; });
+  d.total = Math.round(d.dimensions.reduce(function(a, dm){ return a + dm.contrib; }, 0) * 10) / 10;
+  d.band = vxBand(d.total);
+  d.recommendation = vxRecommendationFromBand(d.band);
 
   // New narrative notes (investor relevance, funding/regulatory/partnership) are
   // display-only strings — default to empty rather than crash if Claude omits one.
@@ -2781,20 +2834,35 @@ function normalizeEvalResult(d) {
     if (typeof d[key] !== 'string') d[key] = '';
   });
 
-  // Confidence Uplift: always normalize to a safe, fully-shaped object so the
-  // renderer never has to guess. A missing/malformed uplift object is treated
-  // as "not applied" — it must never be silently invented as applied.
-  var u = (d.uplift && typeof d.uplift === 'object') ? d.uplift : {};
-  d.uplift = {
-    eligible: !!u.eligible,
-    applied: !!u.applied,
-    baseTotal: isFiniteNum(u.baseTotal) ? u.baseTotal : null,
-    points: isFiniteNum(u.points) ? Math.round(u.points) : 0,
-    reasons: Array.isArray(u.reasons) ? u.reasons.filter(function(r){ return typeof r === 'string' && r; }).slice(0, 3) : [],
-    requiresReview: !!u.requiresReview
-  };
-  // applied implies requiresReview by policy, regardless of what was returned.
-  if (d.uplift.applied) d.uplift.requiresReview = true;
+  // Competitors: named, specific, evidence-tied — validate shape defensively;
+  // an entry missing a real name or reasoning is dropped rather than shown
+  // as a blank/templated card. Reshaped from Claude's {name,type,theirEdge,
+  // ourEdge} into the pre-existing editable card shape {name,website,note,
+  // ours,theirs} so the already-built edit/add/delete UI keeps working
+  // unchanged — only the data source changed, real research instead of the
+  // old buildCompetitors() template.
+  d.competitors = (Array.isArray(d.competitors) ? d.competitors : []).filter(function(c){
+    return c && typeof c.name === 'string' && c.name.trim();
+  }).map(function(c){
+    return {
+      name: c.name.trim(),
+      website: '',
+      note: (typeof c.type === 'string' && c.type.trim()) ? c.type.trim() : 'Competitor',
+      ours: [(typeof c.ourEdge === 'string' && c.ourEdge.trim()) ? c.ourEdge.trim() : 'See evaluation for detail.'],
+      theirs: [(typeof c.theirEdge === 'string' && c.theirEdge.trim()) ? c.theirEdge.trim() : 'See evaluation for detail.']
+    };
+  }).slice(0, 5);
+
+  // Confidence Uplift — deterministic, computed from the now-trustworthy base
+  // total plus the evidence tiers Claude assigned (a judgement call, which is
+  // fine to trust) and contradiction severity. Claude's own uplift object, if
+  // it returns one, is ignored entirely — same reasoning as dimensions above.
+  d.uplift = computeUpliftFromScores(d.scores, d.dimensions, d.contradictions, d.total);
+  if (d.uplift.applied) {
+    d.total = Math.round((d.uplift.baseTotal + d.uplift.points) * 10) / 10;
+    d.band = vxBand(d.total);
+    d.recommendation = vxRecommendationFromBand(d.band);
+  }
 
   return d;
 }
@@ -2994,36 +3062,77 @@ async function runVALUEXEvaluation() {
 
   try {
     // ---- Attempt real VALUEX call ----
-    // Files used to be read as base64 and sent to Anthropic as raw 'document'
-    // blocks. That inflates a multi-MB deck by ~33% (base64 overhead), and
-    // Netlify Functions reject request bodies above a hard size ceiling —
-    // a few large PDFs alone were enough to push the POST body past 13 MB
-    // and get rejected before the function even ran (empty response body,
-    // plain 400). Extracting plain text client-side with the same pdf.js
-    // pipeline already used for Typeform PDFs avoids sending the encoded
-    // file at all; only the text VALUEX actually needs to score against
-    // travels over the wire.
+    // Files are read as text first (cheap, always attempted). But pdf.js only
+    // reads a PDF's embedded TEXT layer — it has no OCR, so a deck that's
+    // mostly slide graphics/screenshots (very common: Canva, Figma, Keynote
+    // exports) can yield a small fraction of its real content as "extracted
+    // text" with zero errors, silently starving the evaluation of most of
+    // the deck. This was very likely the main driver behind "deck
+    // illegible/unreadable" showing up repeatedly and evidence tiers
+    // clustering at C (claim-only) almost everywhere: if Claude never
+    // actually sees the deck's real content, everything it scores falls back
+    // to the Typeform's self-reported text, which is claim-tier by
+    // definition. Fix: detect low text-density (chars per page) and, when
+    // size allows, ALSO send that file as a raw PDF document block — Claude
+    // reads PDFs natively/visually, so this recovers exactly the content
+    // pdf.js's text layer misses. Bounded by file size so this can't
+    // reintroduce the old oversized-payload problem.
     var MAX_CHARS_PER_FILE = 9000;    // ~2.2k tokens per file — enough for a deck's core claims, not its full formatting
     var MAX_TOTAL_FILE_CHARS = 16000; // leaves headroom under the 20-30k full-message cap for typeform/notes/public signals
+    var DENSITY_FLOOR = 120;          // chars/page below this = likely image-heavy, not just a terse deck
+    var MAX_RAW_PDF_BYTES = 3 * 1024 * 1024; // per-file cap for including the actual PDF bytes
     var extractedFileSections = [];
     var totalExtractedChars = 0;
+    var rawPdfBlocks = []; // { name, base64 } — spliced into `content` after the text block
+    var rawPdfBudget = 3.2 * 1024 * 1024; // total budget across all raw-PDF inclusions this run (base64 inflates ~33%, stays well under the 4MB payload guard)
+
     for (var i = 0; i < uploadedFiles.length && i < 5; i++) {
       var upf = uploadedFiles[i];
       if (!upf.name.toLowerCase().endsWith('.pdf')) {
         extractedFileSections.push('--- ' + upf.name + ' ---\n(Not a PDF — this workstation only extracts text from PDFs; the filename is passed as context, but its content is not sent.)');
         continue;
       }
-      var pdfText = '';
+      var pdfText = '', numPages = 0;
       try {
-        pdfText = await extractPDFText(upf);
+        var extracted = await extractPDFText(upf);
+        pdfText = extracted.text;
+        numPages = extracted.numPages || 1;
       } catch (exErr) {
         console.warn('PDF extraction failed for ' + upf.name + ':', exErr);
         pdfText = '';
       }
-      if (!pdfText || pdfText.trim().length < 30) {
-        extractedFileSections.push('--- ' + upf.name + ' ---\n(No extractable text found — likely a scanned/image-only PDF. Treat any claims resting solely on this file as unverifiable / claim-only.)');
+
+      var trimmedLen = pdfText ? pdfText.trim().length : 0;
+      var density = numPages > 0 ? trimmedLen / numPages : trimmedLen;
+      var looksImageHeavy = trimmedLen < 30 || density < DENSITY_FLOOR;
+
+      if (looksImageHeavy && upf.size <= MAX_RAW_PDF_BYTES && rawPdfBudget > 0) {
+        toast(upf.name + ': low text yield (' + trimmedLen + ' chars/' + numPages + 'p) — attaching as a document so Claude can read it directly', 'i');
+        // Attempt to include the actual PDF so Claude can read it visually.
+        try {
+          var fr = await readFileAsBase64(upf);
+          var approxBytes = fr.base64.length * 0.75; // base64 -> raw byte estimate
+          if (approxBytes <= rawPdfBudget) {
+            rawPdfBlocks.push({ name: upf.name, base64: fr.base64 });
+            rawPdfBudget -= approxBytes;
+            extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield from automatic extraction — ' + trimmedLen + ' characters across ' + numPages + ' page(s), suggesting an image-heavy deck. The actual PDF is attached below as a document for you to read directly — use that, not this text summary, for this file.)');
+          } else {
+            extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield — ' + trimmedLen + ' characters across ' + numPages + ' page(s), likely image-heavy, and too large to attach directly this run. Note this explicitly as missing evidence — do not treat it as confirmation the deck itself is thin.)');
+          }
+        } catch (readErr) {
+          console.warn('Raw PDF read failed for ' + upf.name + ':', readErr);
+          extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield — ' + trimmedLen + ' characters across ' + numPages + ' page(s), likely image-heavy; could not attach the raw file this run. Note this explicitly as missing evidence.)');
+        }
         continue;
       }
+
+      if (looksImageHeavy) {
+        // Image-heavy but too large (or budget spent) to attach — same honest
+        // flag as above, just without a successful attachment attempt.
+        extractedFileSections.push('--- ' + upf.name + ' ---\n(Low text yield — ' + trimmedLen + ' characters across ' + numPages + ' page(s), likely image-heavy and too large to attach this run (' + fmtSize(upf.size) + '). Note this explicitly as missing evidence — do not treat it as confirmation the deck itself is thin.)');
+        continue;
+      }
+
       var remainingBudget = Math.max(0, MAX_TOTAL_FILE_CHARS - totalExtractedChars);
       var perFileCap = Math.min(MAX_CHARS_PER_FILE, remainingBudget);
       var wasTruncated = pdfText.length > perFileCap;
@@ -3096,20 +3205,28 @@ async function runVALUEXEvaluation() {
         + '\n\n[... truncated: input exceeded ' + MAX_USER_MESSAGE_CHARS + ' characters; remaining content omitted to keep the evaluation within the server time limit ...]';
     }
 
+    // Raw PDF document blocks for decks flagged as image-heavy above — spliced
+    // in before the text block so Claude sees the actual pages, not just
+    // whatever thin text pdf.js could pull from them.
+    rawPdfBlocks.forEach(function(rb){
+      content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: rb.base64 } });
+    });
     content.push({ type: 'text', text: userMessage });
 
     var requestBodyObj = {
       model: 'claude-sonnet-5',
-      max_tokens: 6000,
+      max_tokens: 7000,
       system: VALUEX_SYSTEM_PROMPT,
-      // No 'tools' here on purpose. web_search made the main evaluation call
-      // slow enough to blow past Netlify's function time limit (observed:
-      // 504 after ~30s with it enabled). The main score now runs purely off
-      // the Typeform answers, uploaded/deck text, and project fields — fast
-      // and deterministic. If the reviewer wants public-link updates folded
-      // in, that's the separate, optional "Scan public signals" button
-      // (scanPublicSignals()), which keeps its own web_search tool and is
-      // never part of this request.
+      // web_search is back on, safely, now that the main evaluation runs as a
+      // background job (evaluate-start.js -> evaluate-run-background.js,
+      // 15-minute execution budget) instead of the old synchronous function
+      // (10-30s limit) — web_search was removed earlier specifically because
+      // it blew past that old synchronous limit (504 after ~30s). That
+      // constraint no longer applies, and real competitor research (see
+      // COMPETITOR RESEARCH in the system prompt) needs it to name actual
+      // companies instead of generic archetypes. max_tokens raised slightly
+      // (6000 -> 7000) to leave headroom for the tool-use turns.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }],
       messages: [{ role: 'user', content: content }]
     };
     var requestBodyStr = JSON.stringify(requestBodyObj);
@@ -3271,7 +3388,7 @@ async function runVALUEXEvaluation() {
   evalData.website = evalData.website || meta.website || '';
   evalData.founder = evalData.founder || meta.founder || '';
   evalData.founderLinkedin = evalData.founderLinkedin || meta.founderLinkedin || '';
-  evalData.competitors = (evalData.competitors && evalData.competitors.length) ? evalData.competitors : buildCompetitors(meta, evalData.dimensions || []);
+  evalData.competitors = (evalData.competitors && evalData.competitors.length) ? evalData.competitors : (isDemo ? buildCompetitors(meta, evalData.dimensions || []) : []);
   evalData.includeCompetitors = (evalData.includeCompetitors !== false);
 
   // Rendering gets its own try/catch, independent of the API-call try/catch
@@ -4224,16 +4341,51 @@ function renderRiskMatrix(d) {
   axes += '<text x="'+(padL + 6)+'" y="'+(H - padB - 6)+'" font-family="JetBrains Mono" font-size="8" fill="#aaa" letter-spacing="0.06em">WEAK · LOW LIFT</text>';
   axes += '<text x="'+(W - padR - 6)+'" y="'+(H - padB - 6)+'" text-anchor="end" font-family="JetBrains Mono" font-size="8" fill="#c68346" letter-spacing="0.06em">⚠ WEAK · HIGH LIFT</text>';
 
-  // Dots
-  var dots = '';
-  scores.forEach(function(s){
+  // Dots — raw positions first, then de-overlapped.
+  //
+  // Both axes are heavily quantized (Y has only 6 possible rows — one per
+  // score 1-6 — and X clusters wherever criteria share a similar weight x
+  // gap-to-6), so with up to 17 criteria on one small plot, exact and
+  // near-exact overlaps are the normal case, not an edge case — this is
+  // exactly what made the chart unreadable. Fixed with a simple beeswarm-
+  // style dodge: group dots by row (same y), sort by x, and push any dot
+  // that would overlap its left neighbour just far enough right to clear
+  // it. Minimal, deterministic, and keeps every dot as close as possible
+  // to its true x (opportunity) position while guaranteeing legibility.
+  var raw = scores.map(function(s){
     var dn = critToDim[s.id];
     var w = weightsByDim[dn] || 0.1;
     var impact = (6 - s.score) * w;
     var x = padL + (impact / maxImpact) * iw;
     var y = padT + ((6 - s.score) / 5) * ih;
-    var color = s.score >= 5 ? '#3f9e63' : s.score >= 3 ? '#c08715' : '#c44545';
     var radius = 4 + w * 8;
+    return { s: s, dn: dn, w: w, impact: impact, x: x, y: y, r: radius };
+  });
+
+  var byRow = {};
+  raw.forEach(function(pt){ var key = pt.y.toFixed(1); (byRow[key] = byRow[key] || []).push(pt); });
+  Object.keys(byRow).forEach(function(key){
+    var row = byRow[key].sort(function(a, b){ return a.x - b.x; });
+    for (var i = 1; i < row.length; i++) {
+      var prev = row[i - 1], cur = row[i];
+      var minGap = prev.r + cur.r + 3;
+      if (cur.x - prev.x < minGap) cur.x = prev.x + minGap;
+    }
+    // If the row overflowed the right edge, compress the whole row back to
+    // fit rather than letting dots run off the plot — still ordered, still
+    // touching-but-legible, just tighter.
+    var last = row[row.length - 1];
+    var overflow = last.x - (W - padR - last.r);
+    if (overflow > 0) {
+      var span = last.x - row[0].x || 1;
+      row.forEach(function(pt){ pt.x -= overflow * ((pt.x - row[0].x) / span); });
+    }
+  });
+
+  var dots = '';
+  raw.forEach(function(pt){
+    var s = pt.s, dn = pt.dn, w = pt.w, impact = pt.impact, x = pt.x, y = pt.y, radius = pt.r;
+    var color = s.score >= 5 ? '#3f9e63' : s.score >= 3 ? '#c08715' : '#c44545';
     var critName = CRITERIA_NAMES[s.id - 1] || ('Criterion ' + s.id);
     var quadrant = (impact >= maxImpact * 0.5)
       ? (s.score >= 4 ? 'STRONG · HIGH LIFT — already strong; further improvement still moves the score noticeably.'
@@ -4813,6 +4965,9 @@ function vxCompetitorSectionHTML(p) {
   h += '<span class="comp-hint">Click any text to edit · the × removes a competitor · this section ' + (included ? 'is included in' : 'is hidden from') + ' the exported PDF.</span>';
   h += '</div>';
   if (!included) { h += '<div class="comp-excluded-bar no-print">Competitor analysis is currently excluded from the exported report.</div>'; }
+  if (!comps.length) {
+    h += '<div class="ps-empty" style="padding:14px;">No named-competitor research was returned for this run — this is now sourced live via web_search during evaluation, not templated. Re-run the evaluation to try again, or add one manually below.</div>';
+  }
   h += '<div class="comp-list">';
   comps.forEach(function(c, i){
     h += '<div class="comp-card">';
