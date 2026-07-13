@@ -17,6 +17,19 @@
 // which comfortably covers it. The browser polls evaluate-status.js
 // (separate file) for the result using the jobId returned here.
 //
+// FIX (this version): a bad response from the trigger call — anything other
+// than 202/2xx, e.g. a 404 because evaluate-run-background isn't deployed
+// at the expected path, or a 500 from the platform rejecting the async
+// invocation outright — was previously only logged with console.error and
+// otherwise ignored: the function still returned { jobId } as if
+// everything were fine, and the job record (already written as 'pending')
+// was never touched again. That is the exact bug behind jobs staying stuck
+// at 'pending' forever with no error ever surfacing anywhere the browser or
+// a person could see it. Now any non-2xx/202 trigger response — or a
+// network-level failure reaching it at all — flips the job to 'failed'
+// immediately, with the actual response detail included, before this
+// function returns.
+//
 // One-time setup: no additional env vars beyond what evaluate.js already
 // needs (ANTHROPIC_API_KEY, read by evaluate-run-background.js, not this
 // file). Netlify Blobs needs zero provisioning, same as projects.js.
@@ -79,26 +92,43 @@ export default async (req) => {
   // while still guaranteeing the trigger request was actually sent before
   // this function's own execution context is torn down.
   const runUrl = new URL('/.netlify/functions/evaluate-run-background', req.url).toString();
+  let triggerOk = false;
+  let triggerDetail = '';
   try {
     const triggerResp = await fetch(runUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobId, request: body }),
     });
-    if (triggerResp.status !== 202 && !triggerResp.ok) {
-      console.error('evaluate-start: unexpected trigger response status', triggerResp.status);
+    // 202 (or any 2xx) means the platform accepted the async invocation —
+    // it does NOT mean the worker will succeed, only that it was started.
+    // Anything else (404 = wrong path / not deployed as expected, 401/403 =
+    // access issue, 500 = platform-level rejection) means the worker was
+    // never actually started, and the job must not be left looking healthy.
+    if (triggerResp.status === 202 || triggerResp.ok) {
+      triggerOk = true;
+    } else {
+      const t = await triggerResp.text().catch(function () { return ''; });
+      triggerDetail = 'Trigger endpoint returned ' + triggerResp.status + (t ? ': ' + t.slice(0, 200) : '');
+      console.error('evaluate-start: unexpected trigger response status', triggerResp.status, t.slice(0, 200));
     }
   } catch (err) {
+    triggerDetail = 'Could not reach the background trigger endpoint: ' + ((err && err.message) || 'unknown error');
     console.error('evaluate-start: failed to trigger background job:', err);
+  }
+
+  if (!triggerOk) {
     // Flip the job to failed immediately so a poller never waits forever on
     // a job that was never actually started.
     try {
       await store.setJSON(jobId, {
         status: 'failed',
-        error: 'Could not start the background evaluation job: ' + ((err && err.message) || 'unknown error'),
+        error: 'Could not start the background evaluation job. ' + (triggerDetail || 'Unknown trigger failure.'),
         failedAt: new Date().toISOString(),
       });
-    } catch (e2) { /* nothing more we can do */ }
+    } catch (e2) {
+      console.error('evaluate-start: also failed to write the failed status:', e2);
+    }
   }
 
   return new Response(JSON.stringify({ jobId }), {
