@@ -3356,11 +3356,17 @@ async function runVALUEXEvaluation() {
       // COMPETITOR RESEARCH in the system prompt) needs it to name actual
       // companies instead of generic archetypes. max_tokens raised slightly
       // (6000 -> 7000) to leave headroom for the tool-use turns. max_uses
-      // capped at 4 (was 6) — the system prompt's floor is 2-3 searches, so
-      // 4 still covers that with one spare, while bounding how many extra
-      // sequential round-trips can stack on top of an already heavier,
-      // image-laden run.
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
+      // restored to 6 (was cut to 4 as a latency mitigation while the real
+      // bottleneck was still the broken background-function trigger, now
+      // fixed at the architecture level — see evaluate-start.js). Capping
+      // search too aggressively trades away evaluation quality: fewer
+      // searches means fewer criteria get corroborated by a public signal,
+      // which skews evidence tiers toward claim-only (C) and pulls scores
+      // down independent of the project's actual merits. The system
+      // prompt's own floor is 2-3 searches for competitor research alone;
+      // 6 leaves real room for verifying funding/execution/regulatory
+      // claims too.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }],
       messages: [{ role: 'user', content: content }]
     };
     var requestBodyStr = JSON.stringify(requestBodyObj);
@@ -4258,11 +4264,10 @@ function renderRadar(d) {
     // entry in dimCounts. That means NO founder data — not a founder score
     // of zero, and not something to silently coincide with VALUEX's number
     // either (that reads as a real, matching data point when it isn't one).
-    // Instead, skip that axis from the founder polygon entirely — the
-    // polygon draws a straight edge directly between its two real
-    // neighbors, a standard, honest way to show "no data here" — and mark
-    // the axis with a distinct dashed "N/A" ring just outside the data area
-    // so the absence is explicit rather than invisible or misread as zero.
+    // That axis is simply left out of the founder polygon — the polygon
+    // draws a straight edge directly between its two real neighbors, a
+    // standard, honest way to show "no data here" without adding a visible
+    // marker or label for it.
     var founderHasData = dims.map(function(x){ return !!dimCounts[x.name]; });
     var founderValuesByIdx = {};
     dims.forEach(function(x, idx){
@@ -4279,16 +4284,8 @@ function renderRadar(d) {
       founderDots += '<g><title>' + String(titleF).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</title>'
                   + '<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#c68346" stroke="#fff" stroke-width="1" style="cursor:help;"/></g>';
     }
-    for (var i3 = 0; i3 < n; i3++) {
-      if (founderValuesByIdx[i3] != null) continue;
-      var pn = pt(i3, R + 6);
-      var titleNA = String(labels[i3] + ' \u2014 no founder self-assessment for this dimension (VALUEX assesses it from external evidence, not a Typeform self-score).').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-      founderDots += '<g><title>' + titleNA + '</title>'
-                   + '<circle cx="'+pn[0].toFixed(1)+'" cy="'+pn[1].toFixed(1)+'" r="6.5" fill="#fff" stroke="#c68346" stroke-width="1" stroke-dasharray="2 1.5" style="cursor:help;"/>'
-                   + '<text x="'+pn[0].toFixed(1)+'" y="'+(pn[1]+2.5).toFixed(1)+'" text-anchor="middle" font-family="JetBrains Mono" font-size="6.5" fill="#c68346" font-weight="700">N/A</text></g>';
-    }
     founderPoly = fp ? '<polygon points="'+fp+'" fill="#c68346" fill-opacity="0.15" stroke="#c68346" stroke-width="1.5" stroke-dasharray="4 3"/>' : '';
-    document.getElementById('er-radar-meta').innerHTML = '<span style="display:inline-block;width:10px;height:3px;background:#9275af;margin-right:4px;vertical-align:middle;"></span>VALUEX  &nbsp; <span style="display:inline-block;width:10px;height:3px;background:#c68346;margin-right:4px;vertical-align:middle;"></span>Founder' + (founderHasData.indexOf(false) >= 0 ? ' <span style="opacity:0.6;">&nbsp;·&nbsp;N/A = no founder self-assessment for that axis</span>' : '');
+    document.getElementById('er-radar-meta').innerHTML = '<span style="display:inline-block;width:10px;height:3px;background:#9275af;margin-right:4px;vertical-align:middle;"></span>VALUEX  &nbsp; <span style="display:inline-block;width:10px;height:3px;background:#c68346;margin-right:4px;vertical-align:middle;"></span>Founder';
   } else {
     document.getElementById('er-radar-meta').innerHTML = 'avg score / 6 per dimension';
   }
