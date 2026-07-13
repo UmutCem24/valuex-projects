@@ -2448,7 +2448,7 @@ async function extractPDFText(file) {
 async function renderPdfPagesAsImages(file, budget) {
   var arrayBuffer = await file.arrayBuffer();
   var pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  var PAGE_CAP = 60; // far above any real pitch deck; guards against pathological files (e.g. a 300-page report attached by mistake)
+  var PAGE_CAP = 40; // real pitch decks are essentially never this long; also bounds worst-case vision-token cost per run
   var numPages = Math.min(pdf.numPages, PAGE_CAP);
   var truncatedPages = pdf.numPages > PAGE_CAP;
 
@@ -2463,11 +2463,21 @@ async function renderPdfPagesAsImages(file, budget) {
   // quality within a tier is free to retry (re-encoding a canvas is cheap,
   // it's the render that's expensive), so each tier still tries a few
   // qualities before giving up on it.
+  //
+  // Scale ceiling lowered from 1.35 to 1.05 (whole ladder shifted down with
+  // it): Claude's per-image vision-token cost is driven by pixel dimensions,
+  // not JPEG file size — the earlier tiers were sized to fit the 4MB payload
+  // guard, which they did, but a typical 10-20 page deck still had ample
+  // per-page budget left over and kept landing on the highest, most token-
+  // expensive tier every time. That, plus the required 2-3+ web_search calls
+  // for competitor research, is what was driving multi-minute evaluations.
+  // A slide's actual text/layout is still fully legible at these lower
+  // resolutions; this trims tokens, not readability.
   var tiers = [
-    { scale: 1.35, qualities: [0.68, 0.55, 0.42] },
-    { scale: 1.05, qualities: [0.60, 0.48, 0.36] },
-    { scale: 0.85, qualities: [0.50, 0.40, 0.30] },
-    { scale: 0.65, qualities: [0.40, 0.30, 0.22] }
+    { scale: 1.05, qualities: [0.62, 0.5, 0.38] },
+    { scale: 0.85, qualities: [0.55, 0.44, 0.34] },
+    { scale: 0.70, qualities: [0.46, 0.36, 0.28] },
+    { scale: 0.55, qualities: [0.38, 0.28, 0.20] }
   ];
   var perPageBudget = budget.remaining / Math.max(1, numPages);
   var startTier = perPageBudget > 220000 ? 0 : perPageBudget > 130000 ? 1 : perPageBudget > 70000 ? 2 : 3;
@@ -3242,7 +3252,7 @@ async function runVALUEXEvaluation() {
       try {
         var rendered = await renderPdfPagesAsImages(upf, imageBudget);
         var label = '--- ' + upf.name + ' — ' + rendered.pagesIncluded + ' of ' + rendered.numPages + ' page(s) attached below as images, in page order'
-          + (rendered.truncatedPages ? ' (file exceeds the 60-page cap; only the first 60 pages were rendered)' : '')
+          + (rendered.truncatedPages ? ' (file exceeds the 40-page cap; only the first 40 pages were rendered)' : '')
           + (rendered.sampledNote ? '; ' + rendered.sampledNote : '')
           + '. These images are the primary source for this file — read them directly. ---';
         deckContentBlocks.push({ type: 'text', text: label });
@@ -3345,8 +3355,12 @@ async function runVALUEXEvaluation() {
       // constraint no longer applies, and real competitor research (see
       // COMPETITOR RESEARCH in the system prompt) needs it to name actual
       // companies instead of generic archetypes. max_tokens raised slightly
-      // (6000 -> 7000) to leave headroom for the tool-use turns.
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }],
+      // (6000 -> 7000) to leave headroom for the tool-use turns. max_uses
+      // capped at 4 (was 6) — the system prompt's floor is 2-3 searches, so
+      // 4 still covers that with one spare, while bounding how many extra
+      // sequential round-trips can stack on top of an already heavier,
+      // image-laden run.
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
       messages: [{ role: 'user', content: content }]
     };
     var requestBodyStr = JSON.stringify(requestBodyObj);
