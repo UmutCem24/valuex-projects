@@ -14,25 +14,36 @@
 // Writes status/result to the same Netlify Blobs record evaluate-status.js
 // reads from, so the two ends never talk to each other directly.
 //
+// ARCHITECTURE (this version): the trigger POST from evaluate-start.js now
+// carries only { jobId } — the actual request (system prompt, messages,
+// tools, including any base64 deck-page images) lives in the job's Netlify
+// Blobs record instead, written there by evaluate-start.js. This function
+// reads it back out by jobId. Why: a Background Function's trigger
+// invocation goes through AWS Lambda's async ("Event") invocation path,
+// which has a hard 256 KB payload limit — far too small for a real
+// evaluation request with deck images attached. Loading the request from
+// Blobs instead of the trigger body sidesteps that limit entirely, since
+// Blobs storage has no comparable constraint. If the job record or its
+// stored request is missing when this function looks for it, that is
+// itself treated as a failure (see near the top of the try block below) —
+// never silently ignored.
+//
 // config.background = true is set below as well, for sites on newer
 // Netlify tooling that prefers that over the filename convention — both are
 // harmless to specify together, and between the two this function is
 // guaranteed to run in background mode regardless of which mechanism this
 // site's build actually honors.
 //
-// FIX (this version): everything is now inside ONE try/catch that starts on
-// the very first line. Previously `getStore()` and `let jobId = null` sat
-// OUTSIDE the try block — if getStore() threw for any reason, the whole
-// invocation crashed with an unhandled exception before any of this file's
-// own error-handling ever ran. Netlify retries a failed background
-// invocation twice (after 1 minute, then 2 more), and if every attempt
-// fails the same way before reaching a single store.setJSON call, the job
-// record is never touched again after evaluate-start.js's initial
-// 'pending' write. That matches the reported symptom exactly: permanently
-// 'pending', never 'running', never 'failed'. jobId is now also read as
-// early as possible inside the try block, and getStore() has an explicit
-// siteID/token fallback in case a background invocation's context ever
-// differs from a synchronous one's auto-configured environment.
+// Everything is inside ONE try/catch that starts on the very first line of
+// real work. Previously `getStore()` and `let jobId = null` sat OUTSIDE the
+// try block — if getStore() threw for any reason, the whole invocation
+// crashed with an unhandled exception before any of this file's own
+// error-handling ever ran, and (because Netlify retries a failed background
+// invocation twice before giving up) the job record could be left
+// permanently 'pending' with nothing ever written past that. jobId is read
+// as early as possible inside the try block for the same reason, and
+// getStore() has an explicit siteID/token fallback in case a background
+// invocation's context ever differs from a synchronous one's.
 //
 // THINKING: Claude Sonnet 5 defaults to adaptive thinking ON (effort:
 // "high") whenever a request omits the 'thinking' field — this is a
@@ -60,21 +71,15 @@ const DEFAULT_MODEL = 'claude-sonnet-5';
 const MIN_MAX_TOKENS = 3000;
 
 export default async (req, context) => {
-  // Everything from here down is inside one try/catch — see the FIX note
-  // above. jobId and store are declared here (outside the try) only so the
-  // catch block can still see whatever was actually assigned before the
-  // failure, not because any code that can throw runs before the try.
   let jobId = null;
   let store = null;
 
   try {
     // getStore() first, defensively. The auto-configured form (no siteID/
-    // token needed) is what Netlify's docs describe as working for both
-    // regular and background functions — but if it ever throws in this
-    // invocation context, fall back to an explicit siteID (from the
-    // Context object Netlify passes as the second handler argument, or from
-    // environment variables) rather than letting the whole function die
-    // before it can report anything.
+    // token needed) works for both regular and background functions per
+    // Netlify's docs — but if it ever throws in this invocation context,
+    // fall back to an explicit siteID/token rather than letting the whole
+    // function die before it can report anything.
     try {
       store = getStore({ name: JOB_STORE, consistency: 'strong' });
     } catch (storeErr) {
@@ -88,16 +93,39 @@ export default async (req, context) => {
       }
     }
 
-    const body = await req.json();
-    jobId = body && body.jobId;
-    const reqPayload = (body && body.request) || {};
+    const triggerBody = await req.json();
+    jobId = triggerBody && triggerBody.jobId;
 
     if (!jobId) {
-      console.error('evaluate-run-background: request missing jobId, nothing to write to.');
+      console.error('evaluate-run-background: trigger request missing jobId, nothing to write to.');
       return; // return value is discarded either way; nothing more to do
     }
 
-    await store.setJSON(jobId, { status: 'running', startedAt: new Date().toISOString() });
+    // Load the actual evaluation request from the job record itself — the
+    // trigger POST only ever carries jobId now (see file header). A missing
+    // record or a record without its stored request is a real failure, not
+    // something to silently skip.
+    const job = await store.get(jobId, { type: 'json' });
+    if (!job || !job.request) {
+      console.error('evaluate-run-background: job record or its stored request is missing for', jobId);
+      await store.setJSON(jobId, {
+        status: 'failed',
+        error: 'Job record or its stored evaluation request was missing when the background worker tried to read it.',
+        failedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    const reqPayload = job.request;
+
+    // Keep `request` in the record through 'running' (a platform-level retry
+    // of this same invocation would need to re-read it), but terminal states
+    // below deliberately drop it — nothing downstream needs it once the job
+    // has finished one way or another, and it keeps the stored record small.
+    await store.setJSON(jobId, {
+      ...job,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    });
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
